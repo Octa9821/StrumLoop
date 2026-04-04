@@ -70,6 +70,19 @@ h1 {
   align-items: center;
 }
 
+.share-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.share-status {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
 button {
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.03);
@@ -274,6 +287,15 @@ button.secondary {
   .field {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .share-bar {
+    align-items: stretch;
+  }
+
+  .share-bar button,
+  .share-status {
+    width: 100%;
   }
 
   .field input[type="range"] {

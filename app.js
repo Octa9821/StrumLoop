@@ -1,6 +1,7 @@
 const COUNTS = ["1", "+", "2", "+", "3", "+", "4", "+"];
 const DIRECTIONS = ["D", "U", "D", "U", "D", "U", "D", "U"];
 const STORAGE_KEY = "strumming-pattern-builder:state";
+const SHARE_STATUS_TIMEOUT_MS = 2200;
 
 const DEFAULT_STATE = {
   active: [true, false, true, false, true, false, true, false],
@@ -10,6 +11,8 @@ const DEFAULT_STATE = {
   strumEnabled: true,
   strumVolume: 70,
 };
+
+const DEFAULT_SHARE_STATUS = "Link updates automatically as you edit.";
 
 const PRESETS = {
   "basic-rock": [true, false, true, true, true, false, true, true],
@@ -32,44 +35,93 @@ const elements = {
   metronomeVolume: document.getElementById("metronomeVolume"),
   strumVolume: document.getElementById("strumVolume"),
   metronomeStatus: document.getElementById("metronomeStatus"),
+  copyShareBtn: document.getElementById("copyShareBtn"),
+  shareStatus: document.getElementById("shareStatus"),
   presetButtons: document.querySelectorAll("[data-preset]"),
 };
 
 const state = {
-  ...loadSavedState(),
+  ...getInitialState(),
   currentStep: -1,
   timerId: null,
   audioContext: null,
 };
+let shareStatusTimerId = null;
 
 applyStateToControls();
 attachEventListeners();
+syncShareUrl();
 render();
+
+function getInitialState() {
+  return mergeSerializableState(DEFAULT_STATE, loadSavedState(), loadStateFromUrl());
+}
 
 function loadSavedState() {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (!raw) {
-      return { ...DEFAULT_STATE };
+      return null;
     }
 
-    const parsed = JSON.parse(raw);
-    return {
-      active: sanitizeActivePattern(parsed.active),
-      bpm: clampBpm(parsed.bpm),
-      metronomeEnabled: getBooleanSetting(parsed.metronomeEnabled, DEFAULT_STATE.metronomeEnabled),
-      metronomeVolume: clampSliderValue(parsed.metronomeVolume, DEFAULT_STATE.metronomeVolume),
-      strumEnabled: getBooleanSetting(parsed.strumEnabled, DEFAULT_STATE.strumEnabled),
-      strumVolume: clampSliderValue(parsed.strumVolume, DEFAULT_STATE.strumVolume),
-    };
+    return sanitizeSerializableState(JSON.parse(raw));
   } catch (error) {
     console.warn("Could not load saved state.", error);
-    return { ...DEFAULT_STATE };
+    return null;
   }
 }
 
+function loadStateFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.toString()) {
+    return null;
+  }
+
+  const pattern = decodePattern(params.get("p"));
+  const bpm = parseNumberParam(params.get("b"));
+  const metronomeEnabled = parseBooleanParam(params.get("mc"));
+  const metronomeVolume = parseNumberParam(params.get("mv"));
+  const strumEnabled = parseBooleanParam(params.get("sc"));
+  const strumVolume = parseNumberParam(params.get("sv"));
+
+  if (
+    pattern === null &&
+    bpm === null &&
+    metronomeEnabled === null &&
+    metronomeVolume === null &&
+    strumEnabled === null &&
+    strumVolume === null
+  ) {
+    return null;
+  }
+
+  return sanitizePartialSerializableState({
+    active: pattern,
+    bpm,
+    metronomeEnabled,
+    metronomeVolume,
+    strumEnabled,
+    strumVolume,
+  });
+}
+
 function persistState() {
-  const serializableState = {
+  const serializableState = getSerializableState();
+
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(serializableState));
+  } catch (error) {
+    console.warn("Could not save state.", error);
+  }
+}
+
+function syncStoredState() {
+  persistState();
+  syncShareUrl();
+}
+
+function getSerializableState() {
+  return {
     active: [...state.active],
     bpm: state.bpm,
     metronomeEnabled: state.metronomeEnabled,
@@ -77,12 +129,55 @@ function persistState() {
     strumEnabled: state.strumEnabled,
     strumVolume: state.strumVolume,
   };
+}
 
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(serializableState));
-  } catch (error) {
-    console.warn("Could not save state.", error);
-  }
+function sanitizeSerializableState(candidate = {}) {
+  return {
+    active: sanitizeActivePattern(candidate.active),
+    bpm: clampBpm(candidate.bpm),
+    metronomeEnabled: getBooleanSetting(candidate.metronomeEnabled, DEFAULT_STATE.metronomeEnabled),
+    metronomeVolume: clampSliderValue(candidate.metronomeVolume, DEFAULT_STATE.metronomeVolume),
+    strumEnabled: getBooleanSetting(candidate.strumEnabled, DEFAULT_STATE.strumEnabled),
+    strumVolume: clampSliderValue(candidate.strumVolume, DEFAULT_STATE.strumVolume),
+  };
+}
+
+function sanitizePartialSerializableState(candidate = {}) {
+  return {
+    active: candidate.active === null ? null : sanitizeActivePattern(candidate.active),
+    bpm: candidate.bpm === null ? null : clampBpm(candidate.bpm),
+    metronomeEnabled:
+      candidate.metronomeEnabled === null
+        ? null
+        : getBooleanSetting(candidate.metronomeEnabled, DEFAULT_STATE.metronomeEnabled),
+    metronomeVolume:
+      candidate.metronomeVolume === null
+        ? null
+        : clampSliderValue(candidate.metronomeVolume, DEFAULT_STATE.metronomeVolume),
+    strumEnabled:
+      candidate.strumEnabled === null
+        ? null
+        : getBooleanSetting(candidate.strumEnabled, DEFAULT_STATE.strumEnabled),
+    strumVolume:
+      candidate.strumVolume === null ? null : clampSliderValue(candidate.strumVolume, DEFAULT_STATE.strumVolume),
+  };
+}
+
+function mergeSerializableState(...candidates) {
+  return candidates.reduce((merged, candidate) => {
+    if (!candidate) {
+      return merged;
+    }
+
+    return {
+      active: candidate.active ?? merged.active,
+      bpm: candidate.bpm ?? merged.bpm,
+      metronomeEnabled: candidate.metronomeEnabled ?? merged.metronomeEnabled,
+      metronomeVolume: candidate.metronomeVolume ?? merged.metronomeVolume,
+      strumEnabled: candidate.strumEnabled ?? merged.strumEnabled,
+      strumVolume: candidate.strumVolume ?? merged.strumVolume,
+    };
+  }, sanitizeSerializableState(DEFAULT_STATE));
 }
 
 function sanitizeActivePattern(value) {
@@ -113,6 +208,109 @@ function clampSliderValue(value, fallback) {
 
 function getBooleanSetting(value, fallback) {
   return typeof value === "boolean" ? value : fallback;
+}
+
+function parseNumberParam(value) {
+  if (value === null) {
+    return null;
+  }
+
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function parseBooleanParam(value) {
+  if (value === "1") {
+    return true;
+  }
+
+  if (value === "0") {
+    return false;
+  }
+
+  return null;
+}
+
+function encodePattern(pattern) {
+  const binary = pattern.map((slot) => (slot ? "1" : "0")).join("");
+  return Number.parseInt(binary, 2).toString(16).padStart(2, "0");
+}
+
+function decodePattern(value) {
+  if (!value || !/^[\da-f]{1,2}$/i.test(value)) {
+    return null;
+  }
+
+  const numeric = Number.parseInt(value, 16);
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+
+  return numeric
+    .toString(2)
+    .padStart(COUNTS.length, "0")
+    .slice(-COUNTS.length)
+    .split("")
+    .map((digit) => digit === "1");
+}
+
+function buildShareUrl() {
+  const url = new URL(window.location.href);
+  const serializableState = getSerializableState();
+
+  url.search = "";
+  url.searchParams.set("p", encodePattern(serializableState.active));
+  url.searchParams.set("b", String(serializableState.bpm));
+  url.searchParams.set("mc", serializableState.metronomeEnabled ? "1" : "0");
+  url.searchParams.set("mv", String(serializableState.metronomeVolume));
+  url.searchParams.set("sc", serializableState.strumEnabled ? "1" : "0");
+  url.searchParams.set("sv", String(serializableState.strumVolume));
+
+  return url;
+}
+
+function syncShareUrl() {
+  const nextUrl = buildShareUrl();
+  window.history.replaceState({}, "", `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+}
+
+function setShareStatus(message, isTemporary = false) {
+  elements.shareStatus.textContent = message;
+
+  if (shareStatusTimerId) {
+    window.clearTimeout(shareStatusTimerId);
+    shareStatusTimerId = null;
+  }
+
+  if (isTemporary) {
+    shareStatusTimerId = window.setTimeout(() => {
+      elements.shareStatus.textContent = DEFAULT_SHARE_STATUS;
+      shareStatusTimerId = null;
+    }, SHARE_STATUS_TIMEOUT_MS);
+  }
+}
+
+async function copyShareLink() {
+  const shareUrl = buildShareUrl().toString();
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(shareUrl);
+      setShareStatus("Share link copied.", true);
+      return;
+    }
+
+    const helper = document.createElement("input");
+    helper.value = shareUrl;
+    document.body.appendChild(helper);
+    helper.select();
+    document.execCommand("copy");
+    helper.remove();
+    setShareStatus("Share link copied.", true);
+  } catch (error) {
+    console.warn("Could not copy share link.", error);
+    setShareStatus("Copy failed. You can still copy the URL from the address bar.", true);
+  }
 }
 
 function applyStateToControls() {
@@ -193,13 +391,13 @@ function updateMetronomeStatus() {
 
 function toggleSlot(index) {
   state.active[index] = !state.active[index];
-  persistState();
+  syncStoredState();
   render();
 }
 
 function setPattern(nextPattern) {
   state.active = sanitizeActivePattern(nextPattern);
-  persistState();
+  syncStoredState();
   render();
 }
 
@@ -220,7 +418,7 @@ function syncBpm(value) {
   state.bpm = clampBpm(value);
   elements.bpmInput.value = state.bpm;
   elements.bpmRange.value = state.bpm;
-  persistState();
+  syncStoredState();
 
   if (state.timerId) {
     restartMetronome();
@@ -347,12 +545,12 @@ function toggleMetronome() {
 
 function updateToggleState(key, checked) {
   state[key] = checked;
-  persistState();
+  syncStoredState();
 }
 
 function updateVolumeState(key, value) {
   state[key] = clampSliderValue(value, DEFAULT_STATE[key]);
-  persistState();
+  syncStoredState();
 }
 
 function clearPattern() {
@@ -369,6 +567,7 @@ function attachEventListeners() {
   elements.fillBtn.addEventListener("click", fillPattern);
   elements.playBtn.addEventListener("click", startMetronome);
   elements.stopBtn.addEventListener("click", stopMetronome);
+  elements.copyShareBtn.addEventListener("click", copyShareLink);
 
   elements.bpmInput.addEventListener("input", (event) => {
     syncBpm(event.target.value);
