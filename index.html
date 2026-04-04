@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Guitar Strumming Pattern Builder</title>
+  <meta
+    name="description"
+    content="A lightweight browser-based tool for building and practicing guitar strumming patterns."
+  />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <div>
+        <h1>Guitar Strumming Pattern Builder</h1>
+        <p class="sub">
+          Click the beats you want to strum. Numbers are <strong>down-strums</strong> and the "+" counts are
+          <strong>up-strums</strong>. Unselected beats are skipped.
+        </p>
+      </div>
+    </header>
+
+    <section class="panel" aria-label="Metronome controls">
+      <h2>Metronome</h2>
+      <div class="metronome-controls">
+        <button class="primary" id="playBtn" type="button">Start</button>
+        <button id="stopBtn" type="button">Stop</button>
+
+        <label class="field" for="bpmInput">
+          <span>BPM</span>
+          <input id="bpmInput" type="number" min="40" max="220" value="90" />
+        </label>
+
+        <label class="field" for="bpmRange">
+          <span>Tempo</span>
+          <input id="bpmRange" type="range" min="40" max="220" value="90" />
+        </label>
+
+        <label class="field checkbox" for="metronomeToggle">
+          <input id="metronomeToggle" type="checkbox" checked />
+          <span>Metronome clicks</span>
+        </label>
+
+        <label class="field" for="metronomeVolume">
+          <span>Metronome vol</span>
+          <input id="metronomeVolume" type="range" min="0" max="100" value="55" />
+        </label>
+
+        <label class="field checkbox" for="strumToggle">
+          <input id="strumToggle" type="checkbox" checked />
+          <span>Strum playback</span>
+        </label>
+
+        <label class="field" for="strumVolume">
+          <span>Strum vol</span>
+          <input id="strumVolume" type="range" min="0" max="100" value="70" />
+        </label>
+
+        <div class="status" id="metronomeStatus">Stopped · eighth-note pulse</div>
+      </div>
+    </section>
+
+    <section class="controls" aria-label="Pattern tools">
+      <button class="primary" id="randomizeBtn" type="button">Randomize</button>
+      <button id="clearBtn" type="button">Clear</button>
+      <button id="fillBtn" type="button">Fill All</button>
+      <button class="secondary" data-preset="basic-rock" type="button">Preset: Basic Rock</button>
+      <button class="secondary" data-preset="island" type="button">Preset: Island</button>
+      <button class="secondary" data-preset="syncopated" type="button">Preset: Syncopated</button>
+    </section>
+
+    <section class="grid" id="grid" aria-label="Strumming pattern grid"></section>
+
+    <section class="legend" aria-label="Keyboard shortcuts">
+      <div class="pill">Click a slot to toggle it</div>
+      <div class="pill">Keyboard: 1-8 toggles slots</div>
+      <div class="pill">Space = start/stop</div>
+      <div class="pill">R = randomize</div>
+      <div class="pill">C = clear</div>
+    </section>
+
+    <section class="output" aria-live="polite">
+      <h2>Current pattern</h2>
+      <div class="pattern-line" id="patternText"></div>
+    </section>
+  </main>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
