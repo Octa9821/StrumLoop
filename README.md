@@ -36,10 +36,3 @@ npx serve .
 ```
 
 Then open `http://localhost:8000` or the URL printed by your server.
-
-## Next suggested steps
-
-1. Add shareable pattern URLs.
-2. Add tap tempo.
-3. Add a 16th-note mode.
-4. Improve audio/timing quality once the feature set settles a bit more.
