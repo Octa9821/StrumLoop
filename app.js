@@ -6,6 +6,9 @@ const STORAGE_KEY = "strumming-pattern-builder:state";
 const SHARE_STATUS_TIMEOUT_MS = 2200;
 const TAP_TEMPO_RESET_MS = 2200;
 const TAP_TEMPO_SAMPLE_LIMIT = 6;
+const SCHEDULER_LOOKAHEAD_MS = 25;
+const SCHEDULE_AHEAD_SECONDS = 0.12;
+const FIRST_NOTE_LEAD_SECONDS = 0.04;
 
 const DEFAULT_STATE = {
   subdivisionMode: SUBDIVISION_MODES.eighth,
@@ -143,6 +146,9 @@ const state = {
   currentStep: -1,
   timerId: null,
   audioContext: null,
+  nextStepIndex: 0,
+  nextNoteTime: 0,
+  uiStepTimeoutIds: [],
 };
 let shareStatusTimerId = null;
 let tapTempoTimestamps = [];
@@ -837,6 +843,10 @@ function getStepIntervalMs() {
   return state.subdivisionMode === SUBDIVISION_MODES.sixteenth ? 15000 / state.bpm : 30000 / state.bpm;
 }
 
+function getStepIntervalSeconds() {
+  return getStepIntervalMs() / 1000;
+}
+
 function ensureAudioContext() {
   if (!state.audioContext) {
     state.audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -847,14 +857,14 @@ function ensureAudioContext() {
   }
 }
 
-function playTone({ frequency, volume, duration, type }) {
+function playToneAt({ frequency, volume, duration, type, when, attack = 0.006, releaseShape = "exponential" }) {
   if (volume <= 0) {
     return;
   }
 
   ensureAudioContext();
 
-  const now = state.audioContext.currentTime;
+  const now = Math.max(state.audioContext.currentTime, when ?? state.audioContext.currentTime);
   const oscillator = state.audioContext.createOscillator();
   const gain = state.audioContext.createGain();
 
@@ -862,8 +872,13 @@ function playTone({ frequency, volume, duration, type }) {
   oscillator.frequency.value = frequency;
 
   gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, volume), now + 0.008);
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+  gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, volume), now + attack);
+
+  if (releaseShape === "linear") {
+    gain.gain.linearRampToValueAtTime(0.0001, now + duration);
+  } else {
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+  }
 
   oscillator.connect(gain);
   gain.connect(state.audioContext.destination);
@@ -872,7 +887,7 @@ function playTone({ frequency, volume, duration, type }) {
   oscillator.stop(now + duration + 0.01);
 }
 
-function playMetronomeClick(stepIndex) {
+function playMetronomeClick(stepIndex, when) {
   if (!state.metronomeEnabled) {
     return;
   }
@@ -882,15 +897,27 @@ function playMetronomeClick(stepIndex) {
     return;
   }
 
-  playTone({
-    frequency: isDownBeat ? 950 : 1400,
-    volume: (state.metronomeVolume / 100) * (isDownBeat ? 0.45 : 0.34),
-    duration: 0.07,
+  const baseVolume = state.metronomeVolume / 100;
+  playToneAt({
+    frequency: isDownBeat ? 1180 : 1620,
+    volume: baseVolume * (isDownBeat ? 0.24 : 0.16),
+    duration: isDownBeat ? 0.045 : 0.032,
+    type: "sine",
+    when,
+    attack: 0.002,
+  });
+
+  playToneAt({
+    frequency: isDownBeat ? 860 : 1220,
+    volume: baseVolume * (isDownBeat ? 0.1 : 0.07),
+    duration: isDownBeat ? 0.06 : 0.04,
     type: "triangle",
+    when,
+    attack: 0.0025,
   });
 }
 
-function playStrumSound(stepIndex) {
+function playStrumSound(stepIndex, when) {
   if (!state.strumEnabled || !state.active[stepIndex]) {
     return;
   }
@@ -900,19 +927,56 @@ function playStrumSound(stepIndex) {
     return;
   }
 
-  playTone({
-    frequency: isDownStrum ? 220 : 320,
-    volume: (state.strumVolume / 100) * 0.4,
-    duration: 0.14,
-    type: isDownStrum ? "sawtooth" : "square",
+  const baseVolume = state.strumVolume / 100;
+  const voiceFrequencies = isDownStrum ? [196, 247, 294] : [294, 370, 440];
+  const voiceOffsets = isDownStrum ? [0, 0.012, 0.022] : [0, 0.01, 0.018];
+
+  voiceFrequencies.forEach((frequency, index) => {
+    playToneAt({
+      frequency,
+      volume: baseVolume * (0.11 - index * 0.02),
+      duration: 0.11 + index * 0.018,
+      type: index === 1 ? "triangle" : "sine",
+      when: when + voiceOffsets[index],
+      attack: 0.003,
+      releaseShape: "linear",
+    });
   });
 }
 
-function tick() {
-  state.currentStep = (state.currentStep + 1) % getSubdivisionCount();
-  playMetronomeClick(state.currentStep);
-  playStrumSound(state.currentStep);
-  render();
+function clearScheduledUiSteps() {
+  state.uiStepTimeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
+  state.uiStepTimeoutIds = [];
+}
+
+function scheduleUiStep(stepIndex, when) {
+  const delay = Math.max(0, (when - state.audioContext.currentTime) * 1000);
+  const timeoutId = window.setTimeout(() => {
+    state.uiStepTimeoutIds = state.uiStepTimeoutIds.filter((id) => id !== timeoutId);
+    state.currentStep = stepIndex;
+    render();
+  }, delay);
+
+  state.uiStepTimeoutIds.push(timeoutId);
+}
+
+function scheduleStep(stepIndex, when) {
+  playMetronomeClick(stepIndex, when);
+  playStrumSound(stepIndex, when);
+  scheduleUiStep(stepIndex, when);
+}
+
+function runScheduler() {
+  if (!state.audioContext) {
+    return;
+  }
+
+  const scheduleUntil = state.audioContext.currentTime + SCHEDULE_AHEAD_SECONDS;
+  while (state.nextNoteTime < scheduleUntil) {
+    scheduleStep(state.nextStepIndex, state.nextNoteTime);
+    state.nextNoteTime += getStepIntervalSeconds();
+    state.nextStepIndex = (state.nextStepIndex + 1) % getSubdivisionCount();
+  }
 }
 
 function startMetronome() {
@@ -921,9 +985,12 @@ function startMetronome() {
   }
 
   ensureAudioContext();
+  clearScheduledUiSteps();
   state.currentStep = -1;
-  tick();
-  state.timerId = window.setInterval(tick, getStepIntervalMs());
+  state.nextStepIndex = 0;
+  state.nextNoteTime = state.audioContext.currentTime + FIRST_NOTE_LEAD_SECONDS;
+  runScheduler();
+  state.timerId = window.setInterval(runScheduler, SCHEDULER_LOOKAHEAD_MS);
   updateMetronomeStatus();
 }
 
@@ -933,6 +1000,7 @@ function stopMetronome() {
     state.timerId = null;
   }
 
+  clearScheduledUiSteps();
   state.currentStep = -1;
   render();
 }
