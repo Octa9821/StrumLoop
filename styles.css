@@ -23,7 +23,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
 }
 
 button,
@@ -39,6 +40,11 @@ input {
   padding: 28px;
   box-shadow: var(--shadow);
   backdrop-filter: blur(10px);
+}
+
+.app > header,
+.app > section {
+  scroll-margin-top: 16px;
 }
 
 .header {
@@ -81,6 +87,7 @@ h1 {
 .share-status {
   color: var(--muted);
   font-size: 0.95rem;
+  line-height: 1.5;
 }
 
 button {
@@ -88,8 +95,10 @@ button {
   background: rgba(255, 255, 255, 0.03);
   color: var(--text);
   padding: 12px 14px;
+  min-height: 48px;
   border-radius: 14px;
   cursor: pointer;
+  touch-action: manipulation;
   transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
 }
 
@@ -136,8 +145,13 @@ button.secondary {
   color: var(--text);
 }
 
+.field span {
+  white-space: nowrap;
+}
+
 .field input[type="number"] {
   width: 82px;
+  min-height: 42px;
   padding: 8px 10px;
   border-radius: 10px;
   border: 1px solid var(--border);
@@ -147,6 +161,7 @@ button.secondary {
 
 .field input[type="range"] {
   width: 180px;
+  touch-action: pan-x;
 }
 
 .field.checkbox {
@@ -157,6 +172,7 @@ button.secondary {
 .status {
   color: var(--muted);
   font-size: 0.95rem;
+  line-height: 1.5;
 }
 
 .grid {
@@ -179,6 +195,7 @@ button.secondary {
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.02));
   user-select: none;
+  touch-action: manipulation;
   transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
 }
 
@@ -262,31 +279,67 @@ button.secondary {
   color: #86efac;
 }
 
+@media (max-width: 920px) {
+  .app {
+    padding: 24px;
+  }
+
+  .field input[type="range"] {
+    width: 150px;
+  }
+}
+
 @media (max-width: 760px) {
   body {
     align-items: stretch;
-    padding: 16px;
   }
 
   .app {
     padding: 20px;
+    border-radius: 20px;
   }
 
   .header {
     flex-direction: column;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+
+  .sub {
+    max-width: none;
+  }
+
+  .metronome-controls,
+  .controls {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+  }
+
+  .metronome-controls > button,
+  .controls > button {
+    width: 100%;
+  }
+
+  .metronome-controls > :not(button) {
+    grid-column: 1 / -1;
   }
 
   .grid {
-    grid-template-columns: repeat(4, minmax(64px, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
   }
 
   .slot {
-    min-height: 126px;
+    min-height: 120px;
   }
 
   .field {
     width: 100%;
     justify-content: space-between;
+    gap: 12px;
+    padding: 12px;
+    min-height: 52px;
   }
 
   .share-bar {
@@ -299,23 +352,46 @@ button.secondary {
   }
 
   .field input[type="range"] {
-    width: min(180px, 100%);
+    width: min(200px, 100%);
     flex: 1;
   }
 
   .status {
     width: 100%;
   }
+
+  .legend {
+    gap: 10px;
+  }
+
+  .pill {
+    width: 100%;
+    border-radius: 16px;
+  }
+
+  .output {
+    margin-top: 18px;
+  }
 }
 
 @media (max-width: 480px) {
+  .app {
+    padding: 16px;
+    border-radius: 18px;
+  }
+
+  h1 {
+    font-size: clamp(1.4rem, 8vw, 1.9rem);
+  }
+
   .grid {
     gap: 10px;
   }
 
   .slot {
-    min-height: 110px;
+    min-height: 108px;
     border-radius: 18px;
+    padding: 16px 8px 14px;
   }
 
   .slot-number {
@@ -324,5 +400,76 @@ button.secondary {
 
   .slot-direction {
     font-size: clamp(1.5rem, 8vw, 2.4rem);
+  }
+
+  .field {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .field input[type="number"],
+  .field input[type="range"] {
+    width: 100%;
+  }
+
+  .share-status,
+  .status,
+  .pattern-line {
+    font-size: 0.94rem;
+  }
+}
+
+@media (max-width: 760px) and (orientation: portrait) {
+  .grid {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .slot {
+    min-height: 64px;
+    padding: 10px 12px 9px;
+    gap: 6px;
+    border-radius: 16px;
+  }
+
+  .slot-number {
+    font-size: clamp(1.6rem, 7vw, 2.2rem);
+  }
+
+  .slot-direction {
+    font-size: clamp(1.15rem, 5vw, 1.65rem);
+  }
+
+  .share-bar {
+    margin-bottom: 12px;
+  }
+
+  .legend {
+    margin-top: 4px;
+  }
+
+  .output {
+    margin-top: 12px;
+  }
+}
+
+@media (max-width: 760px) and (orientation: landscape) {
+  .grid {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .slot {
+    min-height: 104px;
+    padding: 14px 6px 12px;
+    border-radius: 18px;
+  }
+
+  .slot-number {
+    font-size: clamp(1.7rem, 4vw, 2.6rem);
+  }
+
+  .slot-direction {
+    font-size: clamp(1.3rem, 3vw, 2rem);
   }
 }

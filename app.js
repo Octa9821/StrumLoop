@@ -428,6 +428,34 @@ function syncBpm(value) {
   updateMetronomeStatus();
 }
 
+function handleBpmTextInput(value) {
+  elements.bpmInput.value = value;
+
+  if (value.trim() === "") {
+    return;
+  }
+
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return;
+  }
+
+  state.bpm = clampBpm(numeric);
+  elements.bpmRange.value = state.bpm;
+  syncStoredState();
+
+  if (state.timerId) {
+    restartMetronome();
+    return;
+  }
+
+  updateMetronomeStatus();
+}
+
+function commitBpmInputValue() {
+  syncBpm(elements.bpmInput.value);
+}
+
 function getStepIntervalMs() {
   return 30000 / state.bpm;
 }
@@ -570,12 +598,15 @@ function attachEventListeners() {
   elements.copyShareBtn.addEventListener("click", copyShareLink);
 
   elements.bpmInput.addEventListener("input", (event) => {
-    syncBpm(event.target.value);
+    handleBpmTextInput(event.target.value);
   });
 
   elements.bpmRange.addEventListener("input", (event) => {
     syncBpm(event.target.value);
   });
+
+  elements.bpmInput.addEventListener("blur", commitBpmInputValue);
+  elements.bpmInput.addEventListener("change", commitBpmInputValue);
 
   elements.metronomeToggle.addEventListener("change", (event) => {
     updateToggleState("metronomeEnabled", event.target.checked);
