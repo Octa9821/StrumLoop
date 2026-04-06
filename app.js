@@ -184,6 +184,7 @@ const desktopTwoBarMediaQuery = window.matchMedia(DESKTOP_TWO_BAR_QUERY);
 
 applyStateToControls();
 attachEventListeners();
+persistState();
 clearBrowserUrl();
 renderPresetLibrary();
 render();
@@ -1550,6 +1551,11 @@ function attachEventListeners() {
   window.addEventListener("keydown", (event) => {
     const activeTag = document.activeElement?.tagName;
     if (activeTag && ["INPUT", "TEXTAREA"].includes(activeTag)) {
+      return;
+    }
+
+    // Ignore browser/system shortcuts like Cmd+R, Cmd+C, Ctrl+R, etc.
+    if (event.metaKey || event.ctrlKey || event.altKey) {
       return;
     }
 
