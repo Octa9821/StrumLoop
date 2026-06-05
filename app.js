@@ -3,7 +3,9 @@ const SUBDIVISION_MODES = {
   sixteenth: "16th",
 };
 const STORAGE_KEY = "strumming-pattern-builder:state";
+const SAVED_PATTERNS_STORAGE_KEY = "strumming-pattern-builder:saved-patterns";
 const SHARE_STATUS_TIMEOUT_MS = 2200;
+const SAVED_PATTERN_STATUS_TIMEOUT_MS = 2200;
 const TAP_TEMPO_RESET_MS = 2200;
 const TAP_TEMPO_SAMPLE_LIMIT = 6;
 const SCHEDULER_LOOKAHEAD_MS = 25;
@@ -117,6 +119,14 @@ const PRESETS = [
     mode: SUBDIVISION_MODES.sixteenth,
     pattern: [true, false, true, false, false, true, false, true, true, false, true, false, false, true, false, true],
   },
+  {
+    id: "wonderwall",
+    label: "Wonderwall",
+    mode: SUBDIVISION_MODES.sixteenth,
+    loopBars: 2,
+    pattern: [true, false, true, false, true, false, true, true, true, true, true, false, true, false, true, true],
+    patternBarTwo: [true, true, true, false, true, false, true, true, false, true, false, true, true, true, true, true],
+  },
 ];
 
 const elements = {
@@ -159,6 +169,10 @@ const elements = {
   shareStatus: document.getElementById("shareStatus"),
   presetModeLabel: document.getElementById("presetModeLabel"),
   presetGrid: document.getElementById("presetGrid"),
+  savedPatternForm: document.getElementById("savedPatternForm"),
+  savedPatternName: document.getElementById("savedPatternName"),
+  savedPatternStatus: document.getElementById("savedPatternStatus"),
+  savedPatternList: document.getElementById("savedPatternList"),
 };
 
 const state = {
@@ -179,7 +193,9 @@ const state = {
   currentEditorBar: 1,
 };
 let shareStatusTimerId = null;
+let savedPatternStatusTimerId = null;
 let tapTempoTimestamps = [];
+let savedPatterns = loadSavedPatterns();
 const desktopTwoBarMediaQuery = window.matchMedia(DESKTOP_TWO_BAR_QUERY);
 
 applyStateToControls();
@@ -187,6 +203,7 @@ attachEventListeners();
 persistState();
 clearBrowserUrl();
 renderPresetLibrary();
+renderSavedPatterns();
 render();
 
 function getInitialState() {
@@ -204,6 +221,69 @@ function loadSavedState() {
   } catch (error) {
     console.warn("Could not load saved state.", error);
     return null;
+  }
+}
+
+function loadSavedPatterns() {
+  try {
+    const raw = window.localStorage.getItem(SAVED_PATTERNS_STORAGE_KEY);
+    if (!raw) {
+      return [];
+    }
+
+    const candidates = JSON.parse(raw);
+    if (!Array.isArray(candidates)) {
+      return [];
+    }
+
+    return candidates
+      .map(sanitizeSavedPattern)
+      .filter(Boolean)
+      .slice(0, 50);
+  } catch (error) {
+    console.warn("Could not load saved patterns.", error);
+    return [];
+  }
+}
+
+function sanitizeSavedPattern(candidate) {
+  if (!candidate || typeof candidate !== "object") {
+    return null;
+  }
+
+  const name = typeof candidate.name === "string" ? candidate.name.trim().slice(0, 40) : "";
+  if (!name) {
+    return null;
+  }
+
+  const subdivisionMode = sanitizeSubdivisionMode(candidate.subdivisionMode);
+  return {
+    id:
+      typeof candidate.id === "string" && /^[a-zA-Z0-9-]+$/.test(candidate.id)
+        ? candidate.id
+        : createSavedPatternId(),
+    name,
+    subdivisionMode,
+    loopBars: clampLoopBars(candidate.loopBars),
+    active: sanitizeActivePattern(candidate.active, subdivisionMode),
+    activeBarTwo: sanitizeActivePattern(candidate.activeBarTwo ?? candidate.active, subdivisionMode),
+  };
+}
+
+function createSavedPatternId() {
+  if (window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function persistSavedPatterns() {
+  try {
+    window.localStorage.setItem(SAVED_PATTERNS_STORAGE_KEY, JSON.stringify(savedPatterns));
+  } catch (error) {
+    console.warn("Could not save pattern library.", error);
+    setSavedPatternStatus("Could not save patterns in this browser.");
   }
 }
 
@@ -734,11 +814,133 @@ function renderPresetLibrary() {
 }
 
 function isPresetActive(preset) {
+  if (preset.mode !== state.subdivisionMode) {
+    return false;
+  }
+
+  if (preset.loopBars === 2) {
+    return (
+      state.loopBars === 2 &&
+      patternsMatch(preset.pattern, state.active) &&
+      patternsMatch(preset.patternBarTwo, state.activeBarTwo)
+    );
+  }
+
+  return patternsMatch(preset.pattern, getEditablePattern());
+}
+
+function patternsMatch(firstPattern, secondPattern) {
   return (
-    preset.mode === state.subdivisionMode &&
-    preset.pattern.length === getEditablePattern().length &&
-    preset.pattern.every((slot, index) => slot === getEditablePattern()[index])
+    Array.isArray(firstPattern) &&
+    Array.isArray(secondPattern) &&
+    firstPattern.length === secondPattern.length &&
+    firstPattern.every((slot, index) => slot === secondPattern[index])
   );
+}
+
+function renderSavedPatterns() {
+  if (savedPatterns.length === 0) {
+    elements.savedPatternList.innerHTML = '<p class="saved-pattern-empty">No saved patterns yet.</p>';
+    return;
+  }
+
+  elements.savedPatternList.innerHTML = savedPatterns
+    .map(
+      (savedPattern) => `
+        <article class="saved-pattern-card">
+          <div class="saved-pattern-info">
+            <strong>${escapeHtml(savedPattern.name)}</strong>
+            <span>${savedPattern.subdivisionMode}-note • ${savedPattern.loopBars} ${savedPattern.loopBars === 1 ? "bar" : "bars"}</span>
+          </div>
+          <div class="saved-pattern-actions">
+            <button class="secondary" type="button" data-load-saved-pattern="${savedPattern.id}">Load</button>
+            <button class="saved-pattern-delete" type="button" data-delete-saved-pattern="${savedPattern.id}" aria-label="Delete ${escapeHtml(savedPattern.name)}">Delete</button>
+          </div>
+        </article>
+      `
+    )
+    .join("");
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function setSavedPatternStatus(message) {
+  window.clearTimeout(savedPatternStatusTimerId);
+  elements.savedPatternStatus.textContent = message;
+  savedPatternStatusTimerId = window.setTimeout(() => {
+    elements.savedPatternStatus.textContent = "";
+  }, SAVED_PATTERN_STATUS_TIMEOUT_MS);
+}
+
+function saveCurrentPattern(name) {
+  const trimmedName = name.trim().slice(0, 40);
+  if (!trimmedName) {
+    return;
+  }
+
+  const existingIndex = savedPatterns.findIndex(
+    (savedPattern) => savedPattern.name.toLocaleLowerCase() === trimmedName.toLocaleLowerCase()
+  );
+  const savedPattern = {
+    id: existingIndex >= 0 ? savedPatterns[existingIndex].id : createSavedPatternId(),
+    name: trimmedName,
+    subdivisionMode: state.subdivisionMode,
+    loopBars: state.loopBars,
+    active: [...state.active],
+    activeBarTwo: [...state.activeBarTwo],
+  };
+
+  if (existingIndex >= 0) {
+    savedPatterns.splice(existingIndex, 1);
+  }
+
+  savedPatterns.unshift(savedPattern);
+  savedPatterns = savedPatterns.slice(0, 50);
+  persistSavedPatterns();
+  renderSavedPatterns();
+  elements.savedPatternName.value = "";
+  setSavedPatternStatus(existingIndex >= 0 ? `Updated "${trimmedName}".` : `Saved "${trimmedName}".`);
+}
+
+function loadSavedPattern(id) {
+  const savedPattern = savedPatterns.find((candidate) => candidate.id === id);
+  if (!savedPattern) {
+    return;
+  }
+
+  if (state.timerId) {
+    stopMetronome();
+  }
+
+  state.subdivisionMode = savedPattern.subdivisionMode;
+  state.loopBars = savedPattern.loopBars;
+  state.active = [...savedPattern.active];
+  state.activeBarTwo = [...savedPattern.activeBarTwo];
+  state.currentEditorBar = 1;
+  applyStateToControls();
+  syncStoredState();
+  renderPresetLibrary();
+  render();
+  setSavedPatternStatus(`Loaded "${savedPattern.name}".`);
+}
+
+function deleteSavedPattern(id) {
+  const savedPattern = savedPatterns.find((candidate) => candidate.id === id);
+  if (!savedPattern) {
+    return;
+  }
+
+  savedPatterns = savedPatterns.filter((candidate) => candidate.id !== id);
+  persistSavedPatterns();
+  renderSavedPatterns();
+  setSavedPatternStatus(`Deleted "${savedPattern.name}".`);
 }
 
 function renderGrid() {
@@ -1424,13 +1626,29 @@ function fillPattern() {
   setPattern(getEditablePattern().map(() => true));
 }
 
-function getPresetPattern(presetId, mode = state.subdivisionMode) {
-  const preset = PRESETS.find((candidate) => candidate.id === presetId && candidate.mode === mode);
+function applyPreset(presetId) {
+  const preset = PRESETS.find((candidate) => candidate.id === presetId && candidate.mode === state.subdivisionMode);
   if (!preset) {
-    return null;
+    return;
   }
 
-  return [...preset.pattern];
+  if (preset.loopBars === 2) {
+    if (state.timerId) {
+      stopMetronome();
+    }
+
+    state.loopBars = 2;
+    state.active = [...preset.pattern];
+    state.activeBarTwo = [...preset.patternBarTwo];
+    state.currentEditorBar = 1;
+    applyStateToControls();
+    syncStoredState();
+    renderPresetLibrary();
+    render();
+    return;
+  }
+
+  setPattern(preset.pattern);
 }
 
 function attachEventListeners() {
@@ -1458,6 +1676,22 @@ function attachEventListeners() {
     setSubdivisionMode(SUBDIVISION_MODES.sixteenth);
   });
   elements.copyShareBtn.addEventListener("click", copyShareLink);
+  elements.savedPatternForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveCurrentPattern(elements.savedPatternName.value);
+  });
+  elements.savedPatternList.addEventListener("click", (event) => {
+    const loadButton = event.target.closest("[data-load-saved-pattern]");
+    if (loadButton) {
+      loadSavedPattern(loadButton.getAttribute("data-load-saved-pattern"));
+      return;
+    }
+
+    const deleteButton = event.target.closest("[data-delete-saved-pattern]");
+    if (deleteButton) {
+      deleteSavedPattern(deleteButton.getAttribute("data-delete-saved-pattern"));
+    }
+  });
 
   elements.bpmInput.addEventListener("input", (event) => {
     handleBpmTextInput(event.target.value);
@@ -1545,7 +1779,7 @@ function attachEventListeners() {
     }
 
     const presetId = button.getAttribute("data-preset-id");
-    setPattern(getPresetPattern(presetId));
+    applyPreset(presetId);
   });
 
   window.addEventListener("keydown", (event) => {

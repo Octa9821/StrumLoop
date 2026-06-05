@@ -204,6 +204,22 @@
       <div class="preset-grid" id="presetGrid"></div>
     </section>
 
+    <section class="panel saved-patterns-panel" aria-label="Saved patterns">
+      <div class="saved-patterns-header">
+        <div>
+          <h2>Saved Patterns</h2>
+          <p class="panel-sub">Stored only in this browser.</p>
+        </div>
+        <form class="saved-pattern-form" id="savedPatternForm">
+          <label class="sr-only" for="savedPatternName">Pattern name</label>
+          <input id="savedPatternName" type="text" maxlength="40" placeholder="Pattern name" autocomplete="off" required />
+          <button class="secondary" type="submit">Save Current</button>
+        </form>
+      </div>
+      <div class="saved-pattern-status" id="savedPatternStatus" aria-live="polite"></div>
+      <div class="saved-pattern-list" id="savedPatternList"></div>
+    </section>
+
     <section class="share-bar" aria-label="Share pattern">
       <button class="secondary" id="copyShareBtn" type="button">Copy Share Link</button>
       <div class="share-status" id="shareStatus">Link updates automatically as you edit.</div>
