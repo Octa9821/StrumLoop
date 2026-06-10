@@ -1,2 +1,4 @@
 .DS_Store
 TODO.txt
+assets/media/*.mov
+assets/media/*.mp4
