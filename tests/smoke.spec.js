@@ -39,6 +39,18 @@ test("existing Trainer remains editable and playable", async ({ page }) => {
   await expect(page.locator("#trainerMode")).toBeVisible();
 });
 
+test("Trainer slot hover stays inside its grid", async ({ page }) => {
+  await page.locator("#sixteenthModeBtn").click();
+  await page.locator("#twoBarLoopBtn").click();
+  const slot = page.locator('.grid[data-mode="16th"]:visible .slot').first();
+  await slot.scrollIntoViewIfNeeded();
+  const before = await slot.boundingBox();
+  await slot.hover();
+  const after = await slot.boundingBox();
+  expect(Math.abs(after.y - before.y)).toBeLessThan(1);
+  await expectContained(page, ['.grid[data-mode="16th"]', '.grid[data-mode="16th"] .slot']);
+});
+
 test("builds, reorders, annotates, and persists song sections", async ({ page }) => {
   await page.locator("#songModeBtn").click();
   await page.locator("#songTitle").fill("Smoke Song");
@@ -124,6 +136,8 @@ test("16th-note grids wrap predictably and stay contained", async ({ page }) => 
   const cases = [
     { width: 1920, songColumns: 16, trainerColumns: 16 },
     { width: 1440, songColumns: 16, trainerColumns: 16 },
+    { width: 1365, songColumns: 16, trainerColumns: 16 },
+    { width: 1250, songColumns: 16, trainerColumns: 16 },
     { width: 1200, songColumns: 8, trainerColumns: 8 },
     { width: 1024, songColumns: 8, trainerColumns: 8 },
     { width: 760, songColumns: 4, trainerColumns: 1 },
