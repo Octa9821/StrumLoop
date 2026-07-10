@@ -783,6 +783,7 @@ function applyStateToControls() {
   elements.strumDownToggle.checked = state.strumDownEnabled;
   elements.strumUpToggle.checked = state.strumUpEnabled;
   elements.strumVolume.value = state.strumVolume;
+  window.StrumLoopControls?.sync();
 }
 
 function render() {
@@ -1783,6 +1784,10 @@ function attachEventListeners() {
   });
 
   window.addEventListener("keydown", (event) => {
+    if (document.getElementById("trainerMode")?.hidden) {
+      return;
+    }
+
     const activeTag = document.activeElement?.tagName;
     if (activeTag && ["INPUT", "TEXTAREA"].includes(activeTag)) {
       return;

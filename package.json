@@ -1,0 +1,14 @@
+{
+  "name": "strumloop",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "check": "node --check app.js && node --check song-core.js && node --check song.js && node --check controls.js",
+    "test:unit": "node --test tests/song-core.test.js",
+    "test:smoke": "playwright test",
+    "test": "npm run check && npm run test:unit && npm run test:smoke"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.53.0"
+  }
+}

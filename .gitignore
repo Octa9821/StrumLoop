@@ -2,3 +2,6 @@
 TODO.txt
 assets/media/*.mov
 assets/media/*.mp4
+node_modules/
+test-results/
+playwright-report/

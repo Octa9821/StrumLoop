@@ -39,6 +39,13 @@
       </div>
     </header>
 
+    <nav class="app-mode-toggle mode-toggle" aria-label="Practice mode">
+      <button class="mode-button" id="trainerModeBtn" type="button" aria-pressed="true">Pattern Trainer</button>
+      <button class="mode-button" id="songModeBtn" type="button" aria-pressed="false">Song Builder</button>
+    </nav>
+
+    <div id="trainerMode">
+
     <section class="panel" aria-label="Metronome controls">
       <h2>Metronome</h2>
       <div class="control-cards">
@@ -261,6 +268,70 @@
       <h2>Current pattern</h2>
       <div class="pattern-line" id="patternText"></div>
     </section>
+    </div>
+
+    <div id="songMode" hidden>
+      <section class="panel song-header-panel" aria-label="Song settings">
+        <div class="song-title-row">
+          <label class="field song-title-field" for="songTitle">
+            <span>Song title</span>
+            <input id="songTitle" type="text" maxlength="80" placeholder="Untitled song" autocomplete="off" />
+          </label>
+          <div class="mode-toggle" aria-label="Song subdivision mode">
+            <button class="mode-button" id="songEighthBtn" type="button" aria-pressed="true">8th Notes</button>
+            <button class="mode-button" id="songSixteenthBtn" type="button" aria-pressed="false">16th Notes</button>
+          </div>
+        </div>
+        <div class="song-settings-grid">
+          <label class="field field-compact" for="songBpm"><span>BPM</span><input id="songBpm" type="number" min="40" max="220" value="90" /></label>
+          <label class="field checkbox" for="songCountIn"><input id="songCountIn" type="checkbox" /><span>Count-in</span></label>
+          <label class="field checkbox" for="songPracticeRamp"><input id="songPracticeRamp" type="checkbox" /><span>Practice ramp</span></label>
+          <label class="field field-compact" for="songRampStep"><span>+ BPM</span><input id="songRampStep" type="number" min="1" max="20" value="2" /></label>
+          <label class="field field-compact" for="songRampBars"><span>Every bars</span><input id="songRampBars" type="number" min="1" max="16" value="2" /></label>
+          <label class="field checkbox" for="songMetronome"><input id="songMetronome" type="checkbox" checked /><span>Metronome</span></label>
+          <label class="field checkbox" for="songMetroDown"><input id="songMetroDown" type="checkbox" checked /><span>Metro ↓</span></label>
+          <label class="field checkbox" for="songMetroUp"><input id="songMetroUp" type="checkbox" checked /><span>Metro ↑</span></label>
+          <label class="field checkbox" for="songStrum"><input id="songStrum" type="checkbox" checked /><span>Strum sound</span></label>
+          <label class="field checkbox" for="songStrumDown"><input id="songStrumDown" type="checkbox" checked /><span>Strum ↓</span></label>
+          <label class="field checkbox" for="songStrumUp"><input id="songStrumUp" type="checkbox" checked /><span>Strum ↑</span></label>
+          <label class="field" for="songMetroVolume"><span>Metro volume</span><input id="songMetroVolume" type="range" min="0" max="100" value="55" /></label>
+          <label class="field" for="songStrumVolume"><span>Strum volume</span><input id="songStrumVolume" type="range" min="0" max="100" value="70" /></label>
+        </div>
+      </section>
+
+      <section class="panel song-transport" aria-label="Song playback">
+        <div class="song-toolbar">
+          <button class="primary" id="playSongBtn" type="button">Play Song</button>
+          <button id="stopSongBtn" type="button" disabled>Stop</button>
+          <label class="field checkbox" for="loopSongToggle"><input id="loopSongToggle" type="checkbox" /><span>Loop song</span></label>
+          <button class="secondary" id="addSectionBtn" type="button">Add Section</button>
+        </div>
+        <div class="status" id="songStatus" aria-live="polite">Ready</div>
+      </section>
+
+      <section class="song-sections" id="songSections" aria-label="Song sections"></section>
+
+      <section class="panel saved-patterns-panel" aria-label="Saved songs">
+        <div class="saved-patterns-header">
+          <div><h2>Saved Songs</h2><p class="panel-sub">Stored only in this browser.</p></div>
+          <form class="saved-pattern-form" id="savedSongForm">
+            <label class="sr-only" for="savedSongName">Saved song name</label>
+            <input id="savedSongName" type="text" maxlength="80" placeholder="Song name" autocomplete="off" required />
+            <button class="secondary" type="submit">Save Current</button>
+          </form>
+        </div>
+        <div class="saved-pattern-status" id="savedSongStatus" aria-live="polite"></div>
+        <div class="saved-pattern-list" id="savedSongList"></div>
+      </section>
+
+      <section class="share-bar song-share-bar" aria-label="Share or transfer song">
+        <button class="secondary" id="copySongLinkBtn" type="button">Copy Song Link</button>
+        <button id="exportSongBtn" type="button">Export Song</button>
+        <button id="importSongBtn" type="button">Import Song</button>
+        <input id="importSongFile" type="file" accept=".json,.strumloop.json,application/json" hidden />
+        <div class="share-status" id="songShareStatus">Share the complete song or export a backup file.</div>
+      </section>
+    </div>
 
     <section class="panel about-panel" aria-label="Why StrumLoop exists">
       <h2>Why StrumLoop exists</h2>
@@ -353,6 +424,9 @@
     </footer>
   </main>
 
+  <script src="song-core.js" defer></script>
   <script src="app.js" defer></script>
+  <script src="song.js" defer></script>
+  <script src="controls.js" defer></script>
 </body>
 </html>
