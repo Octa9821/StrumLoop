@@ -10,6 +10,9 @@
   const LOOKAHEAD_MS = 25;
   const SCHEDULE_AHEAD = 0.12;
   const LEAD_SECONDS = 0.04;
+  const ACCENT_VOLUME_MULTIPLIER = 2.3;
+  const LONG_PRESS_MS = 500;
+  const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
   const $ = id => document.getElementById(id);
   const elements = {
     trainerMode: $("trainerMode"), songMode: $("songMode"), trainerModeBtn: $("trainerModeBtn"), songModeBtn: $("songModeBtn"),
@@ -31,6 +34,7 @@
   let sectionTints = new Map();
   let nextSectionTint = 0;
   let statusTimer = null;
+  let touchPressState = null;
   const transport = {
     timerId: null, audioContext: null, nextNoteTime: 0, cursor: Core.initialCursor(0), mode: "song",
     sectionIndex: 0, countInRemaining: 0, completedBars: 0, startBpm: null, current: null, uiTimeouts: [], finishTimeout: null,
@@ -153,8 +157,9 @@
     return `<section class="song-bar"><h3>Bar ${barIndex + 1}</h3><div class="song-grid" data-mode="${song.subdivisionMode}">
       ${labels.map(({ count, direction }, slotIndex) => {
         const current = transport.current && transport.current.sectionIndex === sectionIndex && transport.current.barIndex === barIndex && transport.current.stepIndex === slotIndex;
+        const isAccented = Boolean(bar.accents[slotIndex]);
         return `<div class="song-slot${current ? " current-step" : ""}">
-          <button class="slot${bar.pattern[slotIndex] ? " active" : ""}" type="button" data-action="slot" data-id="${section.id}" data-bar="${barIndex}" data-slot="${slotIndex}" aria-pressed="${bar.pattern[slotIndex]}" aria-label="${escapeHtml(section.name)}, bar ${barIndex + 1}, ${count} ${direction}"><span class="slot-number">${count}</span><span class="slot-direction">${direction}</span></button>
+          <button class="slot${bar.pattern[slotIndex] ? " active" : ""}${isAccented ? " accent" : ""}" type="button" data-action="slot" data-id="${section.id}" data-bar="${barIndex}" data-slot="${slotIndex}" aria-pressed="${bar.pattern[slotIndex]}" aria-label="${escapeHtml(section.name)}, bar ${barIndex + 1}, ${count} ${direction}${isAccented ? ", accented" : ""}"><span class="slot-number">${count}</span><span class="slot-direction">${direction}</span></button>
           <input class="chord-input" data-chord="${section.id}" data-bar="${barIndex}" data-slot="${slotIndex}" maxlength="12" value="${escapeHtml(bar.chords[slotIndex] || "")}" placeholder="Chord" aria-label="Chord at ${count} ${direction}" />
         </div>`;
       }).join("")}</div></section>`;
@@ -163,6 +168,10 @@
   function sectionById(id) { return song.sections.find(section => section.id === id); }
   function sectionIndexById(id) { return song.sections.findIndex(section => section.id === id); }
   function commitAndRender() { persistSong(); renderSections(); }
+  function toggleBarAccent(bar, slot) {
+    if (bar.accents[slot]) { bar.accents[slot] = false; }
+    else { bar.accents[slot] = true; bar.pattern[slot] = true; }
+  }
   function structuralChange(update) { stopPlayback(); update(); commitAndRender(); }
 
   function captureSectionPositions() {
@@ -219,7 +228,7 @@
   }
   function setSongMode(mode) {
     if (mode === song.subdivisionMode) return;
-    if (mode === Core.MODES.eighth && Core.hasLossySixteenthData(song) && !window.confirm("Changing to 8th notes will remove strums and chords on e/a slots. Continue?")) return;
+    if (mode === Core.MODES.eighth && Core.hasLossySixteenthData(song) && !window.confirm("Changing to 8th notes will remove strums, accents, and chords on e/a slots. Continue?")) return;
     stopPlayback(); song = Core.convertSongMode(song, mode); applySongToControls(); commitAndRender();
   }
 
@@ -282,7 +291,8 @@
     const bar = song.sections[cursor.sectionIndex].bars[cursor.barIndex]; if (!song.strumEnabled || !bar.pattern[stepIndex]) return;
     const down = stepIndex % 2 === 0; const frequencies = down ? [196,247,294] : [294,370,440];
     if ((down && !song.strumDownEnabled) || (!down && !song.strumUpEnabled)) return;
-    frequencies.forEach((frequency, index) => tone(frequency, song.strumVolume / 100 * (0.11 - index * 0.02), when + index * 0.01, 0.12, index === 1 ? "triangle" : "sine"));
+    const accentMultiplier = bar.accents[stepIndex] ? ACCENT_VOLUME_MULTIPLIER : 1;
+    frequencies.forEach((frequency, index) => tone(frequency, Math.min(1, song.strumVolume / 100 * (0.11 - index * 0.02) * accentMultiplier), when + index * 0.01, 0.12, index === 1 ? "triangle" : "sine"));
   }
   function stepSeconds() { return song.subdivisionMode === Core.MODES.sixteenth ? 15 / song.bpm : 30 / song.bpm; }
 
@@ -393,7 +403,13 @@
     [[elements.countIn,"countInEnabled"],[elements.practiceRamp,"practiceRampEnabled"],[elements.metronome,"metronomeEnabled"],[elements.metroDown,"metronomeDownEnabled"],[elements.metroUp,"metronomeUpEnabled"],[elements.strum,"strumEnabled"],[elements.strumDown,"strumDownEnabled"],[elements.strumUp,"strumUpEnabled"],[elements.loopSong,"loopSong"]].forEach(([control,key]) => control.addEventListener("change", event => { song[key] = event.target.checked; persistSong(); }));
     elements.sections.addEventListener("click", event => {
       const button = event.target.closest("[data-action]"); if (!button) return; const id = button.dataset.id; const action = button.dataset.action;
-      if (action === "slot") { const section = sectionById(id); const bar = section && section.bars[Number(button.dataset.bar)]; if (!bar) return; bar.pattern[Number(button.dataset.slot)] = !bar.pattern[Number(button.dataset.slot)]; commitAndRender(); }
+      if (action === "slot") {
+        const section = sectionById(id); const bar = section && section.bars[Number(button.dataset.bar)]; if (!bar) return;
+        const slot = Number(button.dataset.slot);
+        if (event.shiftKey) { toggleBarAccent(bar, slot); }
+        else { bar.pattern[slot] = !bar.pattern[slot]; if (!bar.pattern[slot]) bar.accents[slot] = false; }
+        commitAndRender();
+      }
       if (action === "loop") startPlayback("section", sectionIndexById(id)); if (action === "up") moveSection(id, -1); if (action === "down") moveSection(id, 1);
       if (action === "bars") setBarCount(id, button.dataset.value);
       if (action === "duplicate") duplicateSection(id); if (action === "delete") deleteSection(id);
@@ -405,6 +421,37 @@
       if (event.target.dataset.sectionRepeat) section.repeatCount = Math.min(16, Math.max(1, Number(event.target.value) || 1));
       if (event.target.dataset.chord) { const bar = section.bars[Number(event.target.dataset.bar)]; const slot = Number(event.target.dataset.slot); const value = event.target.value.trim().slice(0, 12); if (value) bar.chords[slot] = value; else delete bar.chords[slot]; }
       persistSong();
+    });
+    elements.sections.addEventListener("touchstart", event => {
+      const button = event.target.closest('[data-action="slot"]');
+      if (!button || event.touches.length !== 1) return;
+      const section = sectionById(button.dataset.id); const bar = section && section.bars[Number(button.dataset.bar)];
+      if (!bar) return;
+      const slot = Number(button.dataset.slot); const touch = event.touches[0];
+      const timer = window.setTimeout(() => {
+        if (!touchPressState) return;
+        touchPressState.triggered = true;
+        toggleBarAccent(bar, slot);
+        commitAndRender();
+      }, LONG_PRESS_MS);
+      touchPressState = { startX: touch.clientX, startY: touch.clientY, triggered: false, timer };
+    }, { passive: true });
+    elements.sections.addEventListener("touchmove", event => {
+      if (!touchPressState) return;
+      const touch = event.touches[0];
+      if (Math.hypot(touch.clientX - touchPressState.startX, touch.clientY - touchPressState.startY) > LONG_PRESS_MOVE_TOLERANCE_PX) {
+        window.clearTimeout(touchPressState.timer); touchPressState = null;
+      }
+    }, { passive: true });
+    elements.sections.addEventListener("touchend", event => {
+      if (!touchPressState) return;
+      window.clearTimeout(touchPressState.timer);
+      if (touchPressState.triggered) event.preventDefault();
+      touchPressState = null;
+    });
+    elements.sections.addEventListener("touchcancel", () => {
+      if (touchPressState) window.clearTimeout(touchPressState.timer);
+      touchPressState = null;
     });
     elements.savedForm.addEventListener("submit", event => { event.preventDefault(); saveSong(elements.savedName.value); });
     elements.savedList.addEventListener("click", event => { const button = event.target.closest("[data-saved-action]"); if (!button) return; const index = savedSongs.findIndex(item => item.id === button.dataset.id); if (index < 0) return;

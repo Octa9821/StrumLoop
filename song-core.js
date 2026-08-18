@@ -41,8 +41,19 @@
     });
     return result;
   }
+  function sanitizeAccents(value, mode, pattern) {
+    const length = slotCount(mode);
+    return Array.from({ length }, (_, index) => Boolean(Array.isArray(value) ? value[index] : false) && Boolean(pattern[index]));
+  }
+  function decodeAccents(value, mode) {
+    const length = slotCount(mode);
+    const width = Math.ceil(length / 4);
+    if (typeof value !== "string" || !new RegExp(`^[\\da-f]{1,${width}}$`, "i").test(value)) return Array.from({ length }, () => false);
+    return Number.parseInt(value, 16).toString(2).padStart(length, "0").slice(-length).split("").map(x => x === "1");
+  }
   function createBar(mode, source) {
-    return { pattern: sanitizePattern(source && source.pattern, mode), chords: sanitizeChords(source && source.chords, mode) };
+    const pattern = sanitizePattern(source && source.pattern, mode);
+    return { pattern, chords: sanitizeChords(source && source.chords, mode), accents: sanitizeAccents(source && source.accents, mode, pattern) };
   }
   function createSection(mode, source, index) {
     const barCount = clamp(source && source.barCount, 1, 2, 1);
@@ -88,7 +99,7 @@
       se: value.strumEnabled ? 1 : 0, sd: value.strumDownEnabled ? 1 : 0, su: value.strumUpEnabled ? 1 : 0, mv: value.metronomeVolume,
       sv: value.strumVolume, l: value.loopSong ? 1 : 0, s: value.sections.map(section => ({
         i: section.id, n: section.name, bc: section.barCount, r: section.repeatCount,
-        b: section.bars.map(bar => ({ p: encodePattern(bar.pattern), c: bar.chords }))
+        b: section.bars.map(bar => ({ p: encodePattern(bar.pattern), c: bar.chords, a: encodePattern(bar.accents) }))
       })) };
   }
   function expandSong(value) {
@@ -101,7 +112,7 @@
       metronomeVolume: value.mv, strumVolume: value.sv, loopSong: value.l === 1,
       sections: value.s.map(section => ({ id: section.i, name: section.n, barCount: section.bc,
         repeatCount: section.r, bars: Array.isArray(section.b) ? section.b.map(bar => ({
-          pattern: decodePattern(bar.p, value.m), chords: bar.c
+          pattern: decodePattern(bar.p, value.m), chords: bar.c, accents: decodeAccents(bar.a, value.m)
         })) : [] })) });
   }
   function encodePattern(pattern) {
@@ -137,15 +148,18 @@
     const toSixteenth = nextMode === MODES.sixteenth;
     current.sections.forEach(section => section.bars.forEach(bar => {
       const nextPattern = Array.from({ length: slotCount(nextMode) }, () => false);
+      const nextAccents = Array.from({ length: slotCount(nextMode) }, () => false);
       const nextChords = {};
       if (toSixteenth) {
         bar.pattern.forEach((active, index) => { nextPattern[index * 2] = active; });
+        bar.accents.forEach((accented, index) => { nextAccents[index * 2] = accented; });
         Object.entries(bar.chords).forEach(([index, chord]) => { nextChords[Number(index) * 2] = chord; });
       } else {
         nextPattern.forEach((_, index) => { nextPattern[index] = Boolean(bar.pattern[index * 2]); });
+        nextAccents.forEach((_, index) => { nextAccents[index] = Boolean(bar.accents[index * 2]); });
         Object.entries(bar.chords).forEach(([index, chord]) => { if (Number(index) % 2 === 0) nextChords[Number(index) / 2] = chord; });
       }
-      bar.pattern = nextPattern; bar.chords = nextChords;
+      bar.pattern = nextPattern; bar.accents = nextAccents; bar.chords = nextChords;
     }));
     current.subdivisionMode = nextMode;
     return current;
@@ -154,7 +168,9 @@
     const value = createSong(song);
     if (value.subdivisionMode !== MODES.sixteenth) return false;
     return value.sections.some(section => section.bars.some(bar =>
-      bar.pattern.some((active, index) => index % 2 === 1 && active) || Object.keys(bar.chords).some(index => Number(index) % 2 === 1)));
+      bar.pattern.some((active, index) => index % 2 === 1 && active) ||
+      bar.accents.some((accented, index) => index % 2 === 1 && accented) ||
+      Object.keys(bar.chords).some(index => Number(index) % 2 === 1)));
   }
   function initialCursor(sectionIndex) { return { sectionIndex: sectionIndex || 0, repetition: 1, barIndex: 0, stepIndex: 0 }; }
   function advanceCursor(song, cursor, options) {
