@@ -1012,6 +1012,18 @@ button.secondary {
   box-shadow: inset 0 0 0 3px rgba(250, 204, 21, 0.28);
 }
 
+.slot.accent {
+  border-color: rgba(249, 115, 22, 0.9);
+  background: linear-gradient(180deg, rgba(249, 115, 22, 0.22), rgba(34, 197, 94, 0.1));
+  box-shadow: inset 0 0 0 3px rgba(249, 115, 22, 0.55), inset 0 0 22px rgba(249, 115, 22, 0.28);
+}
+
+.slot.accent.current-step {
+  border-color: rgba(249, 115, 22, 0.98);
+  background: linear-gradient(180deg, rgba(249, 115, 22, 0.3), rgba(250, 204, 21, 0.14));
+  box-shadow: inset 0 0 0 3px rgba(249, 115, 22, 0.7), inset 0 0 24px rgba(249, 115, 22, 0.32);
+}
+
 .slot-number {
   font-size: clamp(2.2rem, 5vw, 4rem);
   font-weight: 800;
@@ -1124,6 +1136,12 @@ button.secondary {
 
 .pattern-token.is-rest {
   color: #cbd5e1;
+}
+
+.pattern-token.is-accent {
+  border-color: rgba(249, 115, 22, 0.45);
+  background: rgba(249, 115, 22, 0.14);
+  color: #fdba74;
 }
 
 @media (max-width: 920px) {

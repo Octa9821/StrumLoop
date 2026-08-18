@@ -12,10 +12,15 @@ const SCHEDULER_LOOKAHEAD_MS = 25;
 const SCHEDULE_AHEAD_SECONDS = 0.12;
 const FIRST_NOTE_LEAD_SECONDS = 0.04;
 const DESKTOP_TWO_BAR_QUERY = "(min-width: 900px)";
+const ACCENT_VOLUME_MULTIPLIER = 2.3;
+const LONG_PRESS_MS = 500;
+const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
 const DEFAULT_STATE = {
   subdivisionMode: SUBDIVISION_MODES.eighth,
   active: [true, false, true, false, true, false, true, false],
   activeBarTwo: [true, false, true, false, true, false, true, false],
+  accent: [false, false, false, false, false, false, false, false],
+  accentBarTwo: [false, false, false, false, false, false, false, false],
   bpm: 90,
   loopBars: 1,
   countInEnabled: false,
@@ -257,6 +262,8 @@ function sanitizeSavedPattern(candidate) {
   }
 
   const subdivisionMode = sanitizeSubdivisionMode(candidate.subdivisionMode);
+  const active = sanitizeActivePattern(candidate.active, subdivisionMode);
+  const activeBarTwo = sanitizeActivePattern(candidate.activeBarTwo ?? candidate.active, subdivisionMode);
   return {
     id:
       typeof candidate.id === "string" && /^[a-zA-Z0-9-]+$/.test(candidate.id)
@@ -265,8 +272,10 @@ function sanitizeSavedPattern(candidate) {
     name,
     subdivisionMode,
     loopBars: clampLoopBars(candidate.loopBars),
-    active: sanitizeActivePattern(candidate.active, subdivisionMode),
-    activeBarTwo: sanitizeActivePattern(candidate.activeBarTwo ?? candidate.active, subdivisionMode),
+    active,
+    activeBarTwo,
+    accent: sanitizeAccentPattern(candidate.accent, subdivisionMode, active),
+    accentBarTwo: sanitizeAccentPattern(candidate.accentBarTwo ?? candidate.accent, subdivisionMode, activeBarTwo),
   };
 }
 
@@ -296,6 +305,8 @@ function loadStateFromUrl() {
   const subdivisionMode = parseSubdivisionMode(params.get("m")) ?? inferSubdivisionModeFromPattern(params.get("p"));
   const pattern = decodePattern(params.get("p"), subdivisionMode ?? DEFAULT_STATE.subdivisionMode);
   const patternBarTwo = decodePattern(params.get("p2"), subdivisionMode ?? DEFAULT_STATE.subdivisionMode);
+  const accent = decodePattern(params.get("a"), subdivisionMode ?? DEFAULT_STATE.subdivisionMode);
+  const accentBarTwo = decodePattern(params.get("a2"), subdivisionMode ?? DEFAULT_STATE.subdivisionMode);
   const bpm = parseNumberParam(params.get("b"));
   const loopBars = parseNumberParam(params.get("lb"));
   const countInEnabled = parseBooleanParam(params.get("ci"));
@@ -313,6 +324,7 @@ function loadStateFromUrl() {
 
   if (
     pattern === null &&
+    accent === null &&
     subdivisionMode === null &&
     bpm === null &&
     loopBars === null &&
@@ -336,6 +348,8 @@ function loadStateFromUrl() {
     subdivisionMode,
     active: pattern,
     activeBarTwo: patternBarTwo ?? (loopBars === 2 ? pattern : null),
+    accent,
+    accentBarTwo: accentBarTwo ?? (loopBars === 2 ? accent : null),
     bpm,
     loopBars,
     countInEnabled,
@@ -372,6 +386,8 @@ function getSerializableState() {
     subdivisionMode: state.subdivisionMode,
     active: [...state.active],
     activeBarTwo: [...state.activeBarTwo],
+    accent: [...state.accent],
+    accentBarTwo: [...state.accentBarTwo],
     bpm: state.bpm,
     loopBars: state.loopBars,
     countInEnabled: state.countInEnabled,
@@ -391,11 +407,15 @@ function getSerializableState() {
 
 function sanitizeSerializableState(candidate = {}) {
   const subdivisionMode = sanitizeSubdivisionMode(candidate.subdivisionMode);
+  const active = sanitizeActivePattern(candidate.active, subdivisionMode);
+  const activeBarTwo = sanitizeActivePattern(candidate.activeBarTwo ?? candidate.active, subdivisionMode);
 
   return {
     subdivisionMode,
-    active: sanitizeActivePattern(candidate.active, subdivisionMode),
-    activeBarTwo: sanitizeActivePattern(candidate.activeBarTwo ?? candidate.active, subdivisionMode),
+    active,
+    activeBarTwo,
+    accent: sanitizeAccentPattern(candidate.accent, subdivisionMode, active),
+    accentBarTwo: sanitizeAccentPattern(candidate.accentBarTwo ?? candidate.accent, subdivisionMode, activeBarTwo),
     bpm: clampBpm(candidate.bpm),
     loopBars: clampLoopBars(candidate.loopBars),
     countInEnabled: getBooleanSetting(candidate.countInEnabled, DEFAULT_STATE.countInEnabled),
@@ -429,6 +449,14 @@ function sanitizePartialSerializableState(candidate = {}) {
         : candidate.activeBarTwo === undefined
           ? null
           : sanitizeActivePattern(candidate.activeBarTwo, activeMode),
+    accent:
+      candidate.accent === null || candidate.accent === undefined
+        ? null
+        : sanitizeAccentPatternShape(candidate.accent, activeMode),
+    accentBarTwo:
+      candidate.accentBarTwo === null || candidate.accentBarTwo === undefined
+        ? null
+        : sanitizeAccentPatternShape(candidate.accentBarTwo, activeMode),
     bpm: candidate.bpm === null ? null : clampBpm(candidate.bpm),
     loopBars: candidate.loopBars === null ? null : clampLoopBars(candidate.loopBars),
     countInEnabled:
@@ -493,11 +521,23 @@ function mergeSerializableState(...candidates) {
       (nextSubdivisionMode !== merged.subdivisionMode
         ? convertPatternToMode(merged.activeBarTwo, nextSubdivisionMode)
         : merged.activeBarTwo);
+    const nextAccent =
+      candidate.accent ??
+      (nextSubdivisionMode !== merged.subdivisionMode
+        ? convertPatternToMode(merged.accent, nextSubdivisionMode)
+        : merged.accent);
+    const nextAccentBarTwo =
+      candidate.accentBarTwo ??
+      (nextSubdivisionMode !== merged.subdivisionMode
+        ? convertPatternToMode(merged.accentBarTwo, nextSubdivisionMode)
+        : merged.accentBarTwo);
 
     return sanitizeSerializableState({
       subdivisionMode: nextSubdivisionMode,
       active: nextActive,
       activeBarTwo: nextActiveBarTwo,
+      accent: nextAccent,
+      accentBarTwo: nextAccentBarTwo,
       bpm: candidate.bpm ?? merged.bpm,
       loopBars: candidate.loopBars ?? merged.loopBars,
       countInEnabled: candidate.countInEnabled ?? merged.countInEnabled,
@@ -570,6 +610,19 @@ function sanitizeActivePattern(value, mode = DEFAULT_STATE.subdivisionMode) {
   }
 
   return value.map((slot) => Boolean(slot));
+}
+
+function sanitizeAccentPatternShape(value, mode = DEFAULT_STATE.subdivisionMode) {
+  const expectedLength = getSubdivisionCount(mode);
+  if (!Array.isArray(value) || value.length !== expectedLength) {
+    return Array.from({ length: expectedLength }, () => false);
+  }
+
+  return value.map((slot) => Boolean(slot));
+}
+
+function sanitizeAccentPattern(value, mode, activePattern) {
+  return sanitizeAccentPatternShape(value, mode).map((accented, index) => accented && Boolean(activePattern?.[index]));
 }
 
 function clampBpm(value) {
@@ -692,8 +745,10 @@ function buildShareUrl() {
   url.search = "";
   url.searchParams.set("m", serializableState.subdivisionMode);
   url.searchParams.set("p", encodePattern(serializableState.active));
+  url.searchParams.set("a", encodePattern(serializableState.accent));
   if (serializableState.loopBars === 2) {
     url.searchParams.set("p2", encodePattern(serializableState.activeBarTwo));
+    url.searchParams.set("a2", encodePattern(serializableState.accentBarTwo));
   }
   url.searchParams.set("b", String(serializableState.bpm));
   url.searchParams.set("lb", String(serializableState.loopBars));
@@ -896,6 +951,8 @@ function saveCurrentPattern(name) {
     loopBars: state.loopBars,
     active: [...state.active],
     activeBarTwo: [...state.activeBarTwo],
+    accent: [...state.accent],
+    accentBarTwo: [...state.accentBarTwo],
   };
 
   if (existingIndex >= 0) {
@@ -924,6 +981,8 @@ function loadSavedPattern(id) {
   state.loopBars = savedPattern.loopBars;
   state.active = [...savedPattern.active];
   state.activeBarTwo = [...savedPattern.activeBarTwo];
+  state.accent = [...savedPattern.accent];
+  state.accentBarTwo = [...savedPattern.accentBarTwo];
   state.currentEditorBar = 1;
   applyStateToControls();
   syncStoredState();
@@ -953,12 +1012,14 @@ function renderGrid() {
     renderGridInto({
       container: elements.barOneGrid,
       pattern: state.active,
+      accentPattern: state.accent,
       currentStep: state.currentLoopBar === 1 ? state.currentStep : -1,
       barNumber: 1,
     });
     renderGridInto({
       container: elements.barTwoGrid,
       pattern: state.activeBarTwo,
+      accentPattern: state.accentBarTwo,
       currentStep: state.currentLoopBar === 2 ? state.currentStep : -1,
       barNumber: 2,
     });
@@ -972,12 +1033,66 @@ function renderGrid() {
   renderGridInto({
     container: elements.grid,
     pattern: getVisibleSingleGridPattern(),
+    accentPattern: getAccentPatternForBar(getVisibleSingleGridBarNumber()),
     currentStep: state.currentStep,
     barNumber: getVisibleSingleGridBarNumber(),
   });
 }
 
-function renderGridInto({ container, pattern, currentStep, barNumber }) {
+function attachLongPressAccent(slot, index, barNumber) {
+  let timerId = null;
+  let startPoint = null;
+  let triggered = false;
+
+  slot.addEventListener(
+    "touchstart",
+    (event) => {
+      if (event.touches.length !== 1) {
+        return;
+      }
+
+      triggered = false;
+      const touch = event.touches[0];
+      startPoint = { x: touch.clientX, y: touch.clientY };
+      timerId = window.setTimeout(() => {
+        triggered = true;
+        toggleAccent(index, barNumber);
+      }, LONG_PRESS_MS);
+    },
+    { passive: true }
+  );
+
+  slot.addEventListener(
+    "touchmove",
+    (event) => {
+      if (timerId === null || !startPoint) {
+        return;
+      }
+
+      const touch = event.touches[0];
+      if (Math.hypot(touch.clientX - startPoint.x, touch.clientY - startPoint.y) > LONG_PRESS_MOVE_TOLERANCE_PX) {
+        window.clearTimeout(timerId);
+        timerId = null;
+      }
+    },
+    { passive: true }
+  );
+
+  slot.addEventListener("touchend", (event) => {
+    window.clearTimeout(timerId);
+    timerId = null;
+    if (triggered) {
+      event.preventDefault();
+    }
+  });
+
+  slot.addEventListener("touchcancel", () => {
+    window.clearTimeout(timerId);
+    timerId = null;
+  });
+}
+
+function renderGridInto({ container, pattern, accentPattern, currentStep, barNumber }) {
   const subdivisions = getSubdivisions();
   container.innerHTML = "";
   container.dataset.mode = state.subdivisionMode;
@@ -985,9 +1100,14 @@ function renderGridInto({ container, pattern, currentStep, barNumber }) {
   subdivisions.forEach(({ count, direction }, index) => {
     const slot = document.createElement("button");
     const classes = ["slot"];
+    const isAccented = Boolean(accentPattern && accentPattern[index]);
 
     if (pattern[index]) {
       classes.push("active");
+    }
+
+    if (isAccented) {
+      classes.push("accent");
     }
 
     if (index === currentStep) {
@@ -997,14 +1117,24 @@ function renderGridInto({ container, pattern, currentStep, barNumber }) {
     slot.className = classes.join(" ");
     slot.type = "button";
     slot.setAttribute("aria-pressed", pattern[index] ? "true" : "false");
-    slot.setAttribute("aria-label", `Bar ${barNumber}: ${count} ${direction} ${pattern[index] ? "selected" : "not selected"}`);
+    slot.setAttribute(
+      "aria-label",
+      `Bar ${barNumber}: ${count} ${direction} ${pattern[index] ? "selected" : "not selected"}${isAccented ? ", accented" : ""}`
+    );
 
     slot.innerHTML = `
       <div class="slot-number">${count}</div>
       <div class="slot-direction">${direction}</div>
     `;
 
-    slot.addEventListener("click", () => toggleSlot(index, barNumber));
+    slot.addEventListener("click", (event) => {
+      if (event.shiftKey) {
+        toggleAccent(index, barNumber);
+      } else {
+        toggleSlot(index, barNumber);
+      }
+    });
+    attachLongPressAccent(slot, index, barNumber);
     container.appendChild(slot);
   });
 }
@@ -1014,17 +1144,17 @@ function renderPatternText() {
     elements.patternText.innerHTML = `
       <div class="pattern-group">
         <span class="pattern-label">Bar 1</span>
-        ${formatPatternLine(state.active)}
+        ${formatPatternLine(state.active, state.accent)}
       </div>
       <div class="pattern-group">
         <span class="pattern-label">Bar 2</span>
-        ${formatPatternLine(state.activeBarTwo)}
+        ${formatPatternLine(state.activeBarTwo, state.accentBarTwo)}
       </div>
     `;
     return;
   }
 
-  elements.patternText.innerHTML = formatPatternLine(state.active);
+  elements.patternText.innerHTML = formatPatternLine(state.active, state.accent);
 }
 
 function updateMetronomeStatus() {
@@ -1147,6 +1277,20 @@ function getPatternForBar(barNumber) {
   return barNumber === 2 ? state.activeBarTwo : state.active;
 }
 
+function getAccentPatternForBar(barNumber) {
+  return barNumber === 2 ? state.accentBarTwo : state.accent;
+}
+
+function setAccentPatternForBar(barNumber, nextAccent) {
+  const sanitizedAccent = sanitizeAccentPattern(nextAccent, state.subdivisionMode, getPatternForBar(barNumber));
+  if (barNumber === 2) {
+    state.accentBarTwo = sanitizedAccent;
+    return;
+  }
+
+  state.accent = sanitizedAccent;
+}
+
 function getVisibleSingleGridBarNumber() {
   if (state.loopBars === 2 && state.timerId && state.transportPhase === "playing") {
     return state.currentLoopBar;
@@ -1173,18 +1317,23 @@ function setPatternForBar(barNumber, nextPattern) {
   const sanitizedPattern = sanitizeActivePattern(nextPattern, state.subdivisionMode);
   if (barNumber === 2) {
     state.activeBarTwo = sanitizedPattern;
-    return;
+  } else {
+    state.active = sanitizedPattern;
   }
 
-  state.active = sanitizedPattern;
+  setAccentPatternForBar(barNumber, getAccentPatternForBar(barNumber));
 }
 
-function formatPatternLine(pattern) {
+function formatPatternLine(pattern, accentPattern) {
   const subdivisions = getSubdivisions();
   const parts = subdivisions.map(({ count, direction }, index) => {
     const isActive = pattern[index];
+    const isAccented = Boolean(accentPattern && accentPattern[index]);
     const label = isActive ? `${count} ${direction}` : `${count} -`;
-    return `<span class="pattern-token ${isActive ? "is-active" : "is-rest"}">${label}</span>`;
+    const classes = ["pattern-token", isActive ? "is-active" : "is-rest", isAccented ? "is-accent" : ""]
+      .filter(Boolean)
+      .join(" ");
+    return `<span class="${classes}">${label}</span>`;
   });
 
   return `<div class="pattern-tokens">${parts.join("")}</div>`;
@@ -1195,6 +1344,25 @@ function toggleSlot(index, barNumber = state.currentEditorBar) {
   const nextPattern = [...getPatternForBar(barNumber)];
   nextPattern[index] = !nextPattern[index];
   setPatternForBar(barNumber, nextPattern);
+  syncStoredState();
+  renderPresetLibrary();
+  render();
+}
+
+function toggleAccent(index, barNumber = state.currentEditorBar) {
+  state.currentEditorBar = barNumber;
+  const currentlyAccented = Boolean(getAccentPatternForBar(barNumber)[index]);
+
+  if (!currentlyAccented) {
+    const nextPattern = [...getPatternForBar(barNumber)];
+    nextPattern[index] = true;
+    setPatternForBar(barNumber, nextPattern);
+  }
+
+  const nextAccent = [...getAccentPatternForBar(barNumber)];
+  nextAccent[index] = !currentlyAccented;
+  setAccentPatternForBar(barNumber, nextAccent);
+
   syncStoredState();
   renderPresetLibrary();
   render();
@@ -1226,6 +1394,12 @@ function setSubdivisionMode(nextMode) {
   state.subdivisionMode = sanitizedMode;
   state.active = sanitizeActivePattern(convertPatternToMode(state.active, sanitizedMode), sanitizedMode);
   state.activeBarTwo = sanitizeActivePattern(convertPatternToMode(state.activeBarTwo, sanitizedMode), sanitizedMode);
+  state.accent = sanitizeAccentPattern(convertPatternToMode(state.accent, sanitizedMode), sanitizedMode, state.active);
+  state.accentBarTwo = sanitizeAccentPattern(
+    convertPatternToMode(state.accentBarTwo, sanitizedMode),
+    sanitizedMode,
+    state.activeBarTwo
+  );
   tapTempoTimestamps = [];
   applyStateToControls();
   syncStoredState();
@@ -1456,13 +1630,14 @@ function playStrumSound(stepIndex, when, loopBar = 1) {
   }
 
   const baseVolume = state.strumVolume / 100;
+  const accentMultiplier = getAccentPatternForBar(loopBar)[stepIndex] ? ACCENT_VOLUME_MULTIPLIER : 1;
   const voiceFrequencies = isDownStrum ? [196, 247, 294] : [294, 370, 440];
   const voiceOffsets = isDownStrum ? [0, 0.012, 0.022] : [0, 0.01, 0.018];
 
   voiceFrequencies.forEach((frequency, index) => {
     playToneAt({
       frequency,
-      volume: baseVolume * (0.11 - index * 0.02),
+      volume: Math.min(1, baseVolume * (0.11 - index * 0.02) * accentMultiplier),
       duration: 0.11 + index * 0.018,
       type: index === 1 ? "triangle" : "sine",
       when: when + voiceOffsets[index],
@@ -1641,6 +1816,8 @@ function applyPreset(presetId) {
     state.loopBars = 2;
     state.active = [...preset.pattern];
     state.activeBarTwo = [...preset.patternBarTwo];
+    state.accent = sanitizeAccentPattern(state.accent, state.subdivisionMode, state.active);
+    state.accentBarTwo = sanitizeAccentPattern(state.accentBarTwo, state.subdivisionMode, state.activeBarTwo);
     state.currentEditorBar = 1;
     applyStateToControls();
     syncStoredState();
@@ -1816,10 +1993,25 @@ function attachEventListeners() {
       d: 14,
       f: 15,
     };
-    const slotIndex = slotShortcutMap[event.key.toLowerCase()];
+    const digitCodeMap = {
+      Digit1: 0,
+      Digit2: 1,
+      Digit3: 2,
+      Digit4: 3,
+      Digit5: 4,
+      Digit6: 5,
+      Digit7: 6,
+      Digit8: 7,
+    };
+    const slotIndex =
+      slotShortcutMap[event.key.toLowerCase()] ?? (event.shiftKey ? digitCodeMap[event.code] : undefined);
 
     if (Number.isInteger(slotIndex) && slotIndex < getEditablePattern().length) {
-      toggleSlot(slotIndex);
+      if (event.shiftKey) {
+        toggleAccent(slotIndex);
+      } else {
+        toggleSlot(slotIndex);
+      }
       return;
     }
 
