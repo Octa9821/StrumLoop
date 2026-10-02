@@ -7,6 +7,7 @@ A free browser-based practice tool for building and looping guitar strumming pat
 - 8th-note and 16th-note strumming grids
 - 1-bar and editable 2-bar phrases
 - Down-strum / up-strum direction labels
+- Per-strum accents with visible `>` markers and louder strum playback
 - Built-in metronome with BPM slider, number input, tap tempo, and count-in
 - Practice ramp with configurable BPM increase and bar interval
 - Separate metronome and strum playback toggles
@@ -58,7 +59,7 @@ npx playwright install chromium
 npm test
 ```
 
-`npm run test:unit` checks song data, serialization, conversion, and transport sequencing. `npm run test:smoke` exercises the Trainer and Song Builder in Chromium at desktop and mobile widths.
+`npm run test:unit` checks song data, serialization, conversion, transport sequencing, and Trainer accents. `npm run test:smoke` exercises the Trainer and Song Builder in Chromium at desktop and mobile widths.
 
 ## Manual smoke checklist
 
@@ -69,3 +70,35 @@ npm test
 - Loop one section, play a song once, and loop the whole song.
 - Copy and reopen a song link; export and re-import a song file.
 - Check chord entry, collapsing, and controls in mobile Chrome and Safari.
+
+## Adding accents
+
+Choose **Strums** above the grid to turn strums on or off. Choose **Accents** to
+toggle emphasis on active strums; rests cannot be accented. The same editing mode
+applies to clicks, taps, and slot keyboard shortcuts. A `>` marks an accent in the
+grid and current-pattern text. Choose **Volume** or **Clack** under **Accent sound**
+in the Strum Sound controls. Volume plays accented strums at 2.5 times their normal
+gain. Clack keeps the strum at normal gain and adds a quieter metallic hit. Both
+variants follow the strum volume and sound toggles; metronome clicks and count-in
+are unchanged. The sound choice is remembered in this browser and included in
+share links. Older links and stored settings default to Volume.
+
+Turning a strum off removes its accent. Clear, Fill All, Randomize, and presets
+reset accents on the bars they replace. Accents are included in saved patterns,
+last-used state, and share links; older patterns and links load without accents.
+Editing mode resets to Strums on reload.
+
+## Verification
+
+With Node.js installed, run the dependency-free regression tests and syntax check:
+
+```bash
+node --test tests/accents.test.cjs
+node --check app.js
+git diff --check
+```
+
+For browser smoke testing, check both subdivisions and bars on desktop and mobile,
+including keyboard focus during playback, save/load, reload, and old share links
+opened over an accented local pattern. Listen to accented and normal strums at
+default settings and at 220 BPM with full-volume dense patterns.

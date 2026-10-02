@@ -190,6 +190,14 @@
               </span>
               <input id="strumVolume" type="range" min="0" max="100" value="70" />
             </label>
+            <div class="accent-sound-control">
+              <span class="accent-sound-label">Accent sound</span>
+              <div class="mode-toggle" role="group" aria-label="Accent sound">
+                <button class="mode-button" id="volumeAccentBtn" type="button" aria-pressed="true" aria-describedby="accentSoundHint">Volume</button>
+                <button class="mode-button" id="clackAccentBtn" type="button" aria-pressed="false" aria-describedby="accentSoundHint">Clack</button>
+              </div>
+              <p class="accent-sound-hint" id="accentSoundHint">Accents play a louder strum.</p>
+            </div>
           </div>
         </section>
       </div>
@@ -233,6 +241,13 @@
     </section>
 
     <section class="grid-shell" aria-label="Strumming pattern grid">
+      <div class="pattern-editor-toolbar">
+        <div class="mode-toggle" role="group" aria-label="Pattern editing mode">
+          <button class="mode-button" id="strumsEditBtn" type="button" aria-pressed="true">Strums</button>
+          <button class="mode-button" id="accentsEditBtn" type="button" aria-pressed="false">Accents</button>
+        </div>
+        <p id="patternEditHint">Click or tap a slot to toggle its strum. &gt; marks an accented strum.</p>
+      </div>
       <div class="grid" id="grid"></div>
 
       <div class="bar-grid-stack" id="barGridStack" hidden>
@@ -254,11 +269,11 @@
 
     <section class="legend" aria-label="Keyboard shortcuts">
       <div class="pill legend-primary-tip">
-        <span class="legend-desktop-text">Click a slot to toggle it</span>
-        <span class="legend-mobile-text">Tap a slot to toggle it</span>
+        <span class="legend-desktop-text">Click to edit strums or accents in the selected mode</span>
+        <span class="legend-mobile-text">Tap to edit strums or accents in the selected mode</span>
       </div>
       <div class="pill legend-keyboard-tip">Keyboard: 1-8, then Q-R / A-F in 16th mode</div>
-      <div class="pill legend-keyboard-tip">Space = start/stop</div>
+      <div class="pill legend-keyboard-tip">Space = start/stop; on a focused button, activate it</div>
       <div class="pill legend-keyboard-tip">T = tap tempo</div>
       <div class="pill legend-keyboard-tip">R = randomize</div>
       <div class="pill legend-keyboard-tip">C = clear</div>
