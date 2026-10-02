@@ -112,3 +112,24 @@ test("expands a v1 payload with no accent field on its bars without throwing", (
   const expanded = Core.expandSong(legacy);
   assert.deepEqual(expanded.sections[0].bars[0].accents, [false, false, false, false, false, false, false, false]);
 });
+
+test("song accent sound round-trips through links and files, defaulting old settings to Volume", () => {
+  for (const accentSound of ["volume", "clack"]) {
+    const song = Core.createSong({ accentSound });
+    assert.equal(Core.deserializeSong(Core.serializeSong(song)).accentSound, accentSound);
+    assert.equal(Core.expandSong(JSON.parse(JSON.stringify(Core.compactSong(song)))).accentSound, accentSound);
+  }
+  for (const accentSound of [undefined, null, "invalid"]) {
+    assert.equal(Core.createSong({ accentSound }).accentSound, "volume");
+  }
+  const legacy = Core.compactSong(Core.createSong({ accentSound: "clack" }));
+  delete legacy.as;
+  assert.equal(Core.expandSong(legacy).accentSound, "volume");
+});
+
+test("malformed song accent arrays are cleared rather than guessed", () => {
+  for (const accents of [null, true, [true], [1, false, false, false, false, false, false, false]]) {
+    const bar = Core.createSong({ sections: [{ bars: [{ accents }] }] }).sections[0].bars[0];
+    assert.deepEqual(bar.accents, Array(8).fill(false));
+  }
+});

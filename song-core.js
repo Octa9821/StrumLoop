@@ -43,7 +43,8 @@
   }
   function sanitizeAccents(value, mode, pattern) {
     const length = slotCount(mode);
-    return Array.from({ length }, (_, index) => Boolean(Array.isArray(value) ? value[index] : false) && Boolean(pattern[index]));
+    if (!Array.isArray(value) || value.length !== length || !value.every(accent => typeof accent === "boolean")) return Array(length).fill(false);
+    return value.map((accent, index) => accent && pattern[index]);
   }
   function decodeAccents(value, mode) {
     const length = slotCount(mode);
@@ -87,6 +88,7 @@
       strumUpEnabled: input.strumUpEnabled !== false,
       metronomeVolume: clamp(input.metronomeVolume, 0, 100, 55),
       strumVolume: clamp(input.strumVolume, 0, 100, 70),
+      accentSound: input.accentSound === "clack" ? "clack" : "volume",
       loopSong: Boolean(input.loopSong),
       sections: rawSections.map((section, index) => createSection(mode, section, index)),
     };
@@ -97,7 +99,7 @@
       pr: value.practiceRampEnabled ? 1 : 0, ps: value.practiceRampStepBpm, pb: value.practiceRampEveryBars,
       me: value.metronomeEnabled ? 1 : 0, md: value.metronomeDownEnabled ? 1 : 0, mu: value.metronomeUpEnabled ? 1 : 0,
       se: value.strumEnabled ? 1 : 0, sd: value.strumDownEnabled ? 1 : 0, su: value.strumUpEnabled ? 1 : 0, mv: value.metronomeVolume,
-      sv: value.strumVolume, l: value.loopSong ? 1 : 0, s: value.sections.map(section => ({
+      sv: value.strumVolume, as: value.accentSound, l: value.loopSong ? 1 : 0, s: value.sections.map(section => ({
         i: section.id, n: section.name, bc: section.barCount, r: section.repeatCount,
         b: section.bars.map(bar => ({ p: encodePattern(bar.pattern), c: bar.chords, a: encodePattern(bar.accents) }))
       })) };
@@ -109,7 +111,7 @@
       practiceRampEveryBars: value.pb, metronomeEnabled: value.me !== 0, metronomeDownEnabled: value.md !== 0,
       metronomeUpEnabled: value.mu !== 0, strumEnabled: value.se !== 0, strumDownEnabled: value.sd !== 0,
       strumUpEnabled: value.su !== 0,
-      metronomeVolume: value.mv, strumVolume: value.sv, loopSong: value.l === 1,
+      metronomeVolume: value.mv, strumVolume: value.sv, accentSound: value.as, loopSong: value.l === 1,
       sections: value.s.map(section => ({ id: section.i, name: section.n, barCount: section.bc,
         repeatCount: section.r, bars: Array.isArray(section.b) ? section.b.map(bar => ({
           pattern: decodePattern(bar.p, value.m), chords: bar.c, accents: decodeAccents(bar.a, value.m)

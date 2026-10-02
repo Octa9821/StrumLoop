@@ -12,15 +12,14 @@ const SCHEDULER_LOOKAHEAD_MS = 25;
 const SCHEDULE_AHEAD_SECONDS = 0.12;
 const FIRST_NOTE_LEAD_SECONDS = 0.04;
 const DESKTOP_TWO_BAR_QUERY = "(min-width: 900px)";
-const ACCENT_VOLUME_MULTIPLIER = 2.3;
-const LONG_PRESS_MS = 500;
-const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
+const STRUM_ACCENT_GAIN = window.StrumLoopAccents.volumeMultiplier;
 const DEFAULT_STATE = {
   subdivisionMode: SUBDIVISION_MODES.eighth,
   active: [true, false, true, false, true, false, true, false],
   activeBarTwo: [true, false, true, false, true, false, true, false],
-  accent: [false, false, false, false, false, false, false, false],
-  accentBarTwo: [false, false, false, false, false, false, false, false],
+  accents: Array(8).fill(false),
+  accentsBarTwo: Array(8).fill(false),
+  accentSound: "volume",
   bpm: 90,
   loopBars: 1,
   countInEnabled: false,
@@ -142,6 +141,9 @@ const elements = {
   barOneCard: document.getElementById("barOneCard"),
   barTwoCard: document.getElementById("barTwoCard"),
   patternText: document.getElementById("patternText"),
+  strumsEditBtn: document.getElementById("strumsEditBtn"),
+  accentsEditBtn: document.getElementById("accentsEditBtn"),
+  patternEditHint: document.getElementById("patternEditHint"),
   randomizeBtn: document.getElementById("randomizeBtn"),
   clearBtn: document.getElementById("clearBtn"),
   fillBtn: document.getElementById("fillBtn"),
@@ -169,6 +171,9 @@ const elements = {
   strumUpToggle: document.getElementById("strumUpToggle"),
   metronomeVolume: document.getElementById("metronomeVolume"),
   strumVolume: document.getElementById("strumVolume"),
+  volumeAccentBtn: document.getElementById("volumeAccentBtn"),
+  clackAccentBtn: document.getElementById("clackAccentBtn"),
+  accentSoundHint: document.getElementById("accentSoundHint"),
   metronomeStatus: document.getElementById("metronomeStatus"),
   copyShareBtn: document.getElementById("copyShareBtn"),
   shareStatus: document.getElementById("shareStatus"),
@@ -196,6 +201,7 @@ const state = {
   currentLoopBar: 1,
   nextLoopBar: 1,
   currentEditorBar: 1,
+  editMode: "strums",
 };
 let shareStatusTimerId = null;
 let savedPatternStatusTimerId = null;
@@ -212,7 +218,8 @@ renderSavedPatterns();
 render();
 
 function getInitialState() {
-  return mergeSerializableState(DEFAULT_STATE, loadSavedState(), loadStateFromUrl());
+  const savedState = loadSavedState();
+  return mergeSerializableState(DEFAULT_STATE, savedState, loadStateFromUrl(savedState?.subdivisionMode));
 }
 
 function loadSavedState() {
@@ -274,8 +281,8 @@ function sanitizeSavedPattern(candidate) {
     loopBars: clampLoopBars(candidate.loopBars),
     active,
     activeBarTwo,
-    accent: sanitizeAccentPattern(candidate.accent, subdivisionMode, active),
-    accentBarTwo: sanitizeAccentPattern(candidate.accentBarTwo ?? candidate.accent, subdivisionMode, activeBarTwo),
+    accents: sanitizeAccents(candidate.accents, active),
+    accentsBarTwo: sanitizeAccents(candidate.accentsBarTwo, activeBarTwo),
   };
 }
 
@@ -296,17 +303,22 @@ function persistSavedPatterns() {
   }
 }
 
-function loadStateFromUrl() {
+function loadStateFromUrl(fallbackMode = DEFAULT_STATE.subdivisionMode) {
   const params = new URLSearchParams(window.location.search);
   if (!params.toString()) {
     return null;
   }
 
   const subdivisionMode = parseSubdivisionMode(params.get("m")) ?? inferSubdivisionModeFromPattern(params.get("p"));
-  const pattern = decodePattern(params.get("p"), subdivisionMode ?? DEFAULT_STATE.subdivisionMode);
-  const patternBarTwo = decodePattern(params.get("p2"), subdivisionMode ?? DEFAULT_STATE.subdivisionMode);
-  const accent = decodePattern(params.get("a"), subdivisionMode ?? DEFAULT_STATE.subdivisionMode);
-  const accentBarTwo = decodePattern(params.get("a2"), subdivisionMode ?? DEFAULT_STATE.subdivisionMode);
+  const mode = subdivisionMode ?? fallbackMode;
+  const pattern = decodePattern(params.get("p"), mode);
+  const patternBarTwo = decodePattern(params.get("p2"), mode);
+  const emptyAccents = Array(getSubdivisionCount(mode)).fill(false);
+  const accents = params.has("a") ? decodePattern(params.get("a"), mode) ?? emptyAccents : null;
+  const accentsBarTwo = params.has("a2") ? decodePattern(params.get("a2"), mode) ?? emptyAccents : null;
+  const accentSound = params.has("as")
+    ? sanitizeAccentSound(params.get("as"))
+    : pattern || patternBarTwo ? DEFAULT_STATE.accentSound : null;
   const bpm = parseNumberParam(params.get("b"));
   const loopBars = parseNumberParam(params.get("lb"));
   const countInEnabled = parseBooleanParam(params.get("ci"));
@@ -324,7 +336,10 @@ function loadStateFromUrl() {
 
   if (
     pattern === null &&
-    accent === null &&
+    patternBarTwo === null &&
+    accents === null &&
+    accentsBarTwo === null &&
+    accentSound === null &&
     subdivisionMode === null &&
     bpm === null &&
     loopBars === null &&
@@ -344,12 +359,17 @@ function loadStateFromUrl() {
     return null;
   }
 
+  const duplicatesFirstBar = loopBars === 2 && pattern && !patternBarTwo;
   return sanitizePartialSerializableState({
     subdivisionMode,
     active: pattern,
     activeBarTwo: patternBarTwo ?? (loopBars === 2 ? pattern : null),
-    accent,
-    accentBarTwo: accentBarTwo ?? (loopBars === 2 ? accent : null),
+    // A shared pattern owns its accents, even when an older link has none.
+    accents: accents ?? (pattern ? emptyAccents : null),
+    accentsBarTwo:
+      accentsBarTwo ??
+      (duplicatesFirstBar ? accents ?? emptyAccents : patternBarTwo ? emptyAccents : null),
+    accentSound,
     bpm,
     loopBars,
     countInEnabled,
@@ -386,8 +406,9 @@ function getSerializableState() {
     subdivisionMode: state.subdivisionMode,
     active: [...state.active],
     activeBarTwo: [...state.activeBarTwo],
-    accent: [...state.accent],
-    accentBarTwo: [...state.accentBarTwo],
+    accents: [...state.accents],
+    accentsBarTwo: [...state.accentsBarTwo],
+    accentSound: state.accentSound,
     bpm: state.bpm,
     loopBars: state.loopBars,
     countInEnabled: state.countInEnabled,
@@ -414,8 +435,9 @@ function sanitizeSerializableState(candidate = {}) {
     subdivisionMode,
     active,
     activeBarTwo,
-    accent: sanitizeAccentPattern(candidate.accent, subdivisionMode, active),
-    accentBarTwo: sanitizeAccentPattern(candidate.accentBarTwo ?? candidate.accent, subdivisionMode, activeBarTwo),
+    accents: sanitizeAccents(candidate.accents, active),
+    accentsBarTwo: sanitizeAccents(candidate.accentsBarTwo, activeBarTwo),
+    accentSound: sanitizeAccentSound(candidate.accentSound),
     bpm: clampBpm(candidate.bpm),
     loopBars: clampLoopBars(candidate.loopBars),
     countInEnabled: getBooleanSetting(candidate.countInEnabled, DEFAULT_STATE.countInEnabled),
@@ -449,14 +471,9 @@ function sanitizePartialSerializableState(candidate = {}) {
         : candidate.activeBarTwo === undefined
           ? null
           : sanitizeActivePattern(candidate.activeBarTwo, activeMode),
-    accent:
-      candidate.accent === null || candidate.accent === undefined
-        ? null
-        : sanitizeAccentPatternShape(candidate.accent, activeMode),
-    accentBarTwo:
-      candidate.accentBarTwo === null || candidate.accentBarTwo === undefined
-        ? null
-        : sanitizeAccentPatternShape(candidate.accentBarTwo, activeMode),
+    accents: candidate.accents ?? null,
+    accentsBarTwo: candidate.accentsBarTwo ?? null,
+    accentSound: candidate.accentSound == null ? null : sanitizeAccentSound(candidate.accentSound),
     bpm: candidate.bpm === null ? null : clampBpm(candidate.bpm),
     loopBars: candidate.loopBars === null ? null : clampLoopBars(candidate.loopBars),
     countInEnabled:
@@ -521,23 +538,28 @@ function mergeSerializableState(...candidates) {
       (nextSubdivisionMode !== merged.subdivisionMode
         ? convertPatternToMode(merged.activeBarTwo, nextSubdivisionMode)
         : merged.activeBarTwo);
-    const nextAccent =
-      candidate.accent ??
-      (nextSubdivisionMode !== merged.subdivisionMode
-        ? convertPatternToMode(merged.accent, nextSubdivisionMode)
-        : merged.accent);
-    const nextAccentBarTwo =
-      candidate.accentBarTwo ??
-      (nextSubdivisionMode !== merged.subdivisionMode
-        ? convertPatternToMode(merged.accentBarTwo, nextSubdivisionMode)
-        : merged.accentBarTwo);
+    const nextAccents =
+      candidate.accents ??
+      (candidate.active != null
+        ? nextActive.map(() => false)
+        : nextSubdivisionMode !== merged.subdivisionMode
+          ? convertPatternToMode(merged.accents, nextSubdivisionMode)
+          : merged.accents);
+    const nextAccentsBarTwo =
+      candidate.accentsBarTwo ??
+      (candidate.activeBarTwo != null
+        ? nextActiveBarTwo.map(() => false)
+        : nextSubdivisionMode !== merged.subdivisionMode
+          ? convertPatternToMode(merged.accentsBarTwo, nextSubdivisionMode)
+          : merged.accentsBarTwo);
 
     return sanitizeSerializableState({
       subdivisionMode: nextSubdivisionMode,
       active: nextActive,
       activeBarTwo: nextActiveBarTwo,
-      accent: nextAccent,
-      accentBarTwo: nextAccentBarTwo,
+      accents: nextAccents,
+      accentsBarTwo: nextAccentsBarTwo,
+      accentSound: candidate.accentSound ?? merged.accentSound,
       bpm: candidate.bpm ?? merged.bpm,
       loopBars: candidate.loopBars ?? merged.loopBars,
       countInEnabled: candidate.countInEnabled ?? merged.countInEnabled,
@@ -558,6 +580,10 @@ function mergeSerializableState(...candidates) {
 
 function sanitizeSubdivisionMode(value) {
   return value === SUBDIVISION_MODES.sixteenth ? SUBDIVISION_MODES.sixteenth : SUBDIVISION_MODES.eighth;
+}
+
+function sanitizeAccentSound(value) {
+  return value === "clack" ? "clack" : DEFAULT_STATE.accentSound;
 }
 
 function getSubdivisions(mode = state.subdivisionMode) {
@@ -612,17 +638,12 @@ function sanitizeActivePattern(value, mode = DEFAULT_STATE.subdivisionMode) {
   return value.map((slot) => Boolean(slot));
 }
 
-function sanitizeAccentPatternShape(value, mode = DEFAULT_STATE.subdivisionMode) {
-  const expectedLength = getSubdivisionCount(mode);
-  if (!Array.isArray(value) || value.length !== expectedLength) {
-    return Array.from({ length: expectedLength }, () => false);
+function sanitizeAccents(value, pattern) {
+  if (!Array.isArray(value) || value.length !== pattern.length || !value.every((slot) => typeof slot === "boolean")) {
+    return pattern.map(() => false);
   }
 
-  return value.map((slot) => Boolean(slot));
-}
-
-function sanitizeAccentPattern(value, mode, activePattern) {
-  return sanitizeAccentPatternShape(value, mode).map((accented, index) => accented && Boolean(activePattern?.[index]));
+  return value.map((accent, index) => accent && pattern[index]);
 }
 
 function clampBpm(value) {
@@ -745,10 +766,11 @@ function buildShareUrl() {
   url.search = "";
   url.searchParams.set("m", serializableState.subdivisionMode);
   url.searchParams.set("p", encodePattern(serializableState.active));
-  url.searchParams.set("a", encodePattern(serializableState.accent));
+  url.searchParams.set("a", encodePattern(serializableState.accents));
+  url.searchParams.set("as", serializableState.accentSound);
   if (serializableState.loopBars === 2) {
     url.searchParams.set("p2", encodePattern(serializableState.activeBarTwo));
-    url.searchParams.set("a2", encodePattern(serializableState.accentBarTwo));
+    url.searchParams.set("a2", encodePattern(serializableState.accentsBarTwo));
   }
   url.searchParams.set("b", String(serializableState.bpm));
   url.searchParams.set("lb", String(serializableState.loopBars));
@@ -839,6 +861,17 @@ function applyStateToControls() {
   elements.strumUpToggle.checked = state.strumUpEnabled;
   elements.strumVolume.value = state.strumVolume;
   window.StrumLoopControls?.sync();
+  elements.volumeAccentBtn.setAttribute("aria-pressed", String(state.accentSound === "volume"));
+  elements.clackAccentBtn.setAttribute("aria-pressed", String(state.accentSound === "clack"));
+  elements.accentSoundHint.textContent = state.accentSound === "clack"
+    ? "Accents add a quiet clack to the normal strum."
+    : "Accents play a louder strum.";
+}
+
+function setAccentSound(sound) {
+  state.accentSound = sanitizeAccentSound(sound);
+  syncStoredState();
+  applyStateToControls();
 }
 
 function render() {
@@ -878,11 +911,13 @@ function isPresetActive(preset) {
     return (
       state.loopBars === 2 &&
       patternsMatch(preset.pattern, state.active) &&
-      patternsMatch(preset.patternBarTwo, state.activeBarTwo)
+      patternsMatch(preset.patternBarTwo, state.activeBarTwo) &&
+      !state.accents.some(Boolean) &&
+      !state.accentsBarTwo.some(Boolean)
     );
   }
 
-  return patternsMatch(preset.pattern, getEditablePattern());
+  return patternsMatch(preset.pattern, getEditablePattern()) && !getAccentsForBar(state.currentEditorBar).some(Boolean);
 }
 
 function patternsMatch(firstPattern, secondPattern) {
@@ -951,8 +986,8 @@ function saveCurrentPattern(name) {
     loopBars: state.loopBars,
     active: [...state.active],
     activeBarTwo: [...state.activeBarTwo],
-    accent: [...state.accent],
-    accentBarTwo: [...state.accentBarTwo],
+    accents: [...state.accents],
+    accentsBarTwo: [...state.accentsBarTwo],
   };
 
   if (existingIndex >= 0) {
@@ -981,8 +1016,8 @@ function loadSavedPattern(id) {
   state.loopBars = savedPattern.loopBars;
   state.active = [...savedPattern.active];
   state.activeBarTwo = [...savedPattern.activeBarTwo];
-  state.accent = [...savedPattern.accent];
-  state.accentBarTwo = [...savedPattern.accentBarTwo];
+  state.accents = [...savedPattern.accents];
+  state.accentsBarTwo = [...savedPattern.accentsBarTwo];
   state.currentEditorBar = 1;
   applyStateToControls();
   syncStoredState();
@@ -1004,6 +1039,15 @@ function deleteSavedPattern(id) {
 }
 
 function renderGrid() {
+  elements.strumsEditBtn.setAttribute("aria-pressed", String(state.editMode === "strums"));
+  elements.accentsEditBtn.setAttribute("aria-pressed", String(state.editMode === "accents"));
+  elements.patternEditHint.textContent =
+    state.editMode === "accents"
+      ? "Click or tap an active strum to toggle its accent (>). Rests cannot be accented."
+      : "Click or tap a slot to toggle its strum. Shift+click or hold an active strum to accent it (>).";
+  const focusedSlot = document.activeElement;
+  const focusedIndex = focusedSlot?.dataset.slotIndex;
+  const focusedBar = focusedSlot?.dataset.barNumber;
   const showDualGrid = shouldUseDualGridView();
   elements.grid.hidden = showDualGrid;
   elements.barGridStack.hidden = !showDualGrid;
@@ -1012,14 +1056,12 @@ function renderGrid() {
     renderGridInto({
       container: elements.barOneGrid,
       pattern: state.active,
-      accentPattern: state.accent,
       currentStep: state.currentLoopBar === 1 ? state.currentStep : -1,
       barNumber: 1,
     });
     renderGridInto({
       container: elements.barTwoGrid,
       pattern: state.activeBarTwo,
-      accentPattern: state.accentBarTwo,
       currentStep: state.currentLoopBar === 2 ? state.currentStep : -1,
       barNumber: 2,
     });
@@ -1027,115 +1069,78 @@ function renderGrid() {
     elements.barTwoCard.classList.toggle("is-editing", state.currentEditorBar === 2);
     elements.barOneCard.classList.toggle("is-playing", state.timerId && state.currentLoopBar === 1);
     elements.barTwoCard.classList.toggle("is-playing", state.timerId && state.currentLoopBar === 2);
-    return;
+  } else {
+    renderGridInto({
+      container: elements.grid,
+      pattern: getVisibleSingleGridPattern(),
+      currentStep: state.currentStep,
+      barNumber: getVisibleSingleGridBarNumber(),
+    });
   }
 
-  renderGridInto({
-    container: elements.grid,
-    pattern: getVisibleSingleGridPattern(),
-    accentPattern: getAccentPatternForBar(getVisibleSingleGridBarNumber()),
-    currentStep: state.currentStep,
-    barNumber: getVisibleSingleGridBarNumber(),
-  });
-}
-
-function attachLongPressAccent(slot, index, barNumber) {
-  let timerId = null;
-  let startPoint = null;
-  let triggered = false;
-
-  slot.addEventListener(
-    "touchstart",
-    (event) => {
-      if (event.touches.length !== 1) {
-        return;
-      }
-
-      triggered = false;
-      const touch = event.touches[0];
-      startPoint = { x: touch.clientX, y: touch.clientY };
-      timerId = window.setTimeout(() => {
-        triggered = true;
-        toggleAccent(index, barNumber);
-      }, LONG_PRESS_MS);
-    },
-    { passive: true }
-  );
-
-  slot.addEventListener(
-    "touchmove",
-    (event) => {
-      if (timerId === null || !startPoint) {
-        return;
-      }
-
-      const touch = event.touches[0];
-      if (Math.hypot(touch.clientX - startPoint.x, touch.clientY - startPoint.y) > LONG_PRESS_MOVE_TOLERANCE_PX) {
-        window.clearTimeout(timerId);
-        timerId = null;
-      }
-    },
-    { passive: true }
-  );
-
-  slot.addEventListener("touchend", (event) => {
-    window.clearTimeout(timerId);
-    timerId = null;
-    if (triggered) {
-      event.preventDefault();
+  // Keep focus on the same step when responsive layout swaps grid containers.
+  if (focusedIndex !== undefined) {
+    const container = showDualGrid
+      ? Number(focusedBar) === 2
+        ? elements.barTwoGrid
+        : elements.barOneGrid
+      : elements.grid;
+    const slot = container.children[Math.min(Number(focusedIndex), container.children.length - 1)];
+    if (slot && document.activeElement !== slot) {
+      slot.focus({ preventScroll: true });
     }
-  });
-
-  slot.addEventListener("touchcancel", () => {
-    window.clearTimeout(timerId);
-    timerId = null;
-  });
+  }
 }
 
-function renderGridInto({ container, pattern, accentPattern, currentStep, barNumber }) {
+function renderGridInto({ container, pattern, currentStep, barNumber }) {
   const subdivisions = getSubdivisions();
-  container.innerHTML = "";
   container.dataset.mode = state.subdivisionMode;
+  const accents = getAccentsForBar(barNumber);
+
+  while (container.children.length > subdivisions.length) {
+    container.lastElementChild.remove();
+  }
 
   subdivisions.forEach(({ count, direction }, index) => {
-    const slot = document.createElement("button");
+    let slot = container.children[index];
+    if (!slot) {
+      slot = document.createElement("button");
+      slot.type = "button";
+      slot.innerHTML = `
+        <div class="slot-number"></div>
+        <div class="slot-direction"></div>
+        <span class="slot-accent" aria-hidden="true">&gt;</span>
+      `;
+      slot.addEventListener("click", event => {
+        if (event.shiftKey) toggleAccent(index, Number(slot.dataset.barNumber));
+        else toggleSlot(index, Number(slot.dataset.barNumber));
+      });
+      container.appendChild(slot);
+    }
     const classes = ["slot"];
-    const isAccented = Boolean(accentPattern && accentPattern[index]);
 
     if (pattern[index]) {
       classes.push("active");
     }
 
-    if (isAccented) {
-      classes.push("accent");
-    }
-
     if (index === currentStep) {
       classes.push("current-step");
     }
+    if (accents[index]) {
+      classes.push("accented");
+    }
 
     slot.className = classes.join(" ");
-    slot.type = "button";
-    slot.setAttribute("aria-pressed", pattern[index] ? "true" : "false");
-    slot.setAttribute(
-      "aria-label",
-      `Bar ${barNumber}: ${count} ${direction} ${pattern[index] ? "selected" : "not selected"}${isAccented ? ", accented" : ""}`
-    );
-
-    slot.innerHTML = `
-      <div class="slot-number">${count}</div>
-      <div class="slot-direction">${direction}</div>
-    `;
-
-    slot.addEventListener("click", (event) => {
-      if (event.shiftKey) {
-        toggleAccent(index, barNumber);
-      } else {
-        toggleSlot(index, barNumber);
-      }
-    });
-    attachLongPressAccent(slot, index, barNumber);
-    container.appendChild(slot);
+    slot.dataset.slotIndex = String(index);
+    slot.dataset.barNumber = String(barNumber);
+    slot.setAttribute("aria-pressed", String(state.editMode === "accents" ? accents[index] : pattern[index]));
+    slot.setAttribute("aria-disabled", String(state.editMode === "accents" && !pattern[index]));
+    slot.setAttribute("aria-describedby", "patternEditHint");
+    const description = !pattern[index] ? "rest" : accents[index] ? "accented strum" : "normal strum";
+    slot.setAttribute("aria-label", `Bar ${barNumber}: ${count} ${direction}, ${description}`);
+    slot.querySelector(".slot-number").textContent = count;
+    slot.querySelector(".slot-direction").textContent = direction;
+    slot.querySelector(".slot-accent").hidden = !accents[index];
   });
 }
 
@@ -1144,17 +1149,17 @@ function renderPatternText() {
     elements.patternText.innerHTML = `
       <div class="pattern-group">
         <span class="pattern-label">Bar 1</span>
-        ${formatPatternLine(state.active, state.accent)}
+        ${formatPatternLine(state.active, state.accents)}
       </div>
       <div class="pattern-group">
         <span class="pattern-label">Bar 2</span>
-        ${formatPatternLine(state.activeBarTwo, state.accentBarTwo)}
+        ${formatPatternLine(state.activeBarTwo, state.accentsBarTwo)}
       </div>
     `;
     return;
   }
 
-  elements.patternText.innerHTML = formatPatternLine(state.active, state.accent);
+  elements.patternText.innerHTML = formatPatternLine(state.active, state.accents);
 }
 
 function updateMetronomeStatus() {
@@ -1277,18 +1282,13 @@ function getPatternForBar(barNumber) {
   return barNumber === 2 ? state.activeBarTwo : state.active;
 }
 
-function getAccentPatternForBar(barNumber) {
-  return barNumber === 2 ? state.accentBarTwo : state.accent;
+function getAccentsForBar(barNumber) {
+  return barNumber === 2 ? state.accentsBarTwo : state.accents;
 }
 
-function setAccentPatternForBar(barNumber, nextAccent) {
-  const sanitizedAccent = sanitizeAccentPattern(nextAccent, state.subdivisionMode, getPatternForBar(barNumber));
-  if (barNumber === 2) {
-    state.accentBarTwo = sanitizedAccent;
-    return;
-  }
-
-  state.accent = sanitizedAccent;
+function setEditMode(mode) {
+  state.editMode = mode === "accents" ? "accents" : "strums";
+  renderGrid();
 }
 
 function getVisibleSingleGridBarNumber() {
@@ -1317,52 +1317,57 @@ function setPatternForBar(barNumber, nextPattern) {
   const sanitizedPattern = sanitizeActivePattern(nextPattern, state.subdivisionMode);
   if (barNumber === 2) {
     state.activeBarTwo = sanitizedPattern;
-  } else {
-    state.active = sanitizedPattern;
+    state.accentsBarTwo = sanitizeAccents(state.accentsBarTwo, sanitizedPattern);
+    return;
   }
 
-  setAccentPatternForBar(barNumber, getAccentPatternForBar(barNumber));
+  state.active = sanitizedPattern;
+  state.accents = sanitizeAccents(state.accents, sanitizedPattern);
 }
 
-function formatPatternLine(pattern, accentPattern) {
+function formatPatternLine(pattern, accents) {
   const subdivisions = getSubdivisions();
   const parts = subdivisions.map(({ count, direction }, index) => {
     const isActive = pattern[index];
-    const isAccented = Boolean(accentPattern && accentPattern[index]);
     const label = isActive ? `${count} ${direction}` : `${count} -`;
-    const classes = ["pattern-token", isActive ? "is-active" : "is-rest", isAccented ? "is-accent" : ""]
-      .filter(Boolean)
-      .join(" ");
-    return `<span class="${classes}">${label}</span>`;
+    const isAccented = isActive && accents[index];
+    const accentMarker = isAccented
+      ? ' <span aria-hidden="true">&gt;</span><span class="sr-only"> accented</span>'
+      : "";
+    return `<span class="pattern-token ${isActive ? "is-active" : "is-rest"}${isAccented ? " is-accented" : ""}">${label}${accentMarker}</span>`;
   });
 
   return `<div class="pattern-tokens">${parts.join("")}</div>`;
 }
 
-function toggleSlot(index, barNumber = state.currentEditorBar) {
+function toggleAccent(index, barNumber = state.currentEditorBar) {
+  const pattern = getPatternForBar(barNumber);
+  if (!Number.isInteger(index) || index < 0 || index >= pattern.length || !pattern[index]) return;
   state.currentEditorBar = barNumber;
-  const nextPattern = [...getPatternForBar(barNumber)];
-  nextPattern[index] = !nextPattern[index];
-  setPatternForBar(barNumber, nextPattern);
+  const accents = getAccentsForBar(barNumber);
+  accents[index] = !accents[index];
   syncStoredState();
   renderPresetLibrary();
   render();
 }
 
-function toggleAccent(index, barNumber = state.currentEditorBar) {
+function toggleSlot(index, barNumber = state.currentEditorBar) {
+  const pattern = getPatternForBar(barNumber);
+  if (!Number.isInteger(index) || index < 0 || index >= pattern.length) {
+    return;
+  }
+  if (state.editMode === "accents" && !pattern[index]) {
+    return;
+  }
   state.currentEditorBar = barNumber;
-  const currentlyAccented = Boolean(getAccentPatternForBar(barNumber)[index]);
-
-  if (!currentlyAccented) {
-    const nextPattern = [...getPatternForBar(barNumber)];
-    nextPattern[index] = true;
+  if (state.editMode === "accents") {
+    const accents = getAccentsForBar(barNumber);
+    accents[index] = !accents[index];
+  } else {
+    const nextPattern = [...pattern];
+    nextPattern[index] = !nextPattern[index];
     setPatternForBar(barNumber, nextPattern);
   }
-
-  const nextAccent = [...getAccentPatternForBar(barNumber)];
-  nextAccent[index] = !currentlyAccented;
-  setAccentPatternForBar(barNumber, nextAccent);
-
   syncStoredState();
   renderPresetLibrary();
   render();
@@ -1374,6 +1379,7 @@ function setPattern(nextPattern) {
   }
 
   setPatternForBar(state.currentEditorBar, nextPattern);
+  getAccentsForBar(state.currentEditorBar).fill(false);
   syncStoredState();
   renderPresetLibrary();
   render();
@@ -1394,12 +1400,8 @@ function setSubdivisionMode(nextMode) {
   state.subdivisionMode = sanitizedMode;
   state.active = sanitizeActivePattern(convertPatternToMode(state.active, sanitizedMode), sanitizedMode);
   state.activeBarTwo = sanitizeActivePattern(convertPatternToMode(state.activeBarTwo, sanitizedMode), sanitizedMode);
-  state.accent = sanitizeAccentPattern(convertPatternToMode(state.accent, sanitizedMode), sanitizedMode, state.active);
-  state.accentBarTwo = sanitizeAccentPattern(
-    convertPatternToMode(state.accentBarTwo, sanitizedMode),
-    sanitizedMode,
-    state.activeBarTwo
-  );
+  state.accents = sanitizeAccents(convertPatternToMode(state.accents, sanitizedMode), state.active);
+  state.accentsBarTwo = sanitizeAccents(convertPatternToMode(state.accentsBarTwo, sanitizedMode), state.activeBarTwo);
   tapTempoTimestamps = [];
   applyStateToControls();
   syncStoredState();
@@ -1630,14 +1632,15 @@ function playStrumSound(stepIndex, when, loopBar = 1) {
   }
 
   const baseVolume = state.strumVolume / 100;
-  const accentMultiplier = getAccentPatternForBar(loopBar)[stepIndex] ? ACCENT_VOLUME_MULTIPLIER : 1;
+  const isAccented = getAccentsForBar(loopBar)[stepIndex];
+  const accentGain = isAccented && state.accentSound === "volume" ? STRUM_ACCENT_GAIN : 1;
   const voiceFrequencies = isDownStrum ? [196, 247, 294] : [294, 370, 440];
   const voiceOffsets = isDownStrum ? [0, 0.012, 0.022] : [0, 0.01, 0.018];
 
   voiceFrequencies.forEach((frequency, index) => {
     playToneAt({
       frequency,
-      volume: Math.min(1, baseVolume * (0.11 - index * 0.02) * accentMultiplier),
+      volume: baseVolume * (0.11 - index * 0.02) * accentGain,
       duration: 0.11 + index * 0.018,
       type: index === 1 ? "triangle" : "sine",
       when: when + voiceOffsets[index],
@@ -1645,6 +1648,18 @@ function playStrumSound(stepIndex, when, loopBar = 1) {
       releaseShape: "linear",
     });
   });
+
+  if (isAccented && state.accentSound === "clack") {
+    window.StrumLoopAccents.clackVoices.forEach(voice => playToneAt({
+      frequency: voice.frequency,
+      volume: baseVolume * voice.gain,
+      duration: voice.duration,
+      type: "square",
+      when,
+      attack: 0.0015,
+      releaseShape: "linear",
+    }));
+  }
 }
 
 function clearScheduledUiSteps() {
@@ -1816,8 +1831,8 @@ function applyPreset(presetId) {
     state.loopBars = 2;
     state.active = [...preset.pattern];
     state.activeBarTwo = [...preset.patternBarTwo];
-    state.accent = sanitizeAccentPattern(state.accent, state.subdivisionMode, state.active);
-    state.accentBarTwo = sanitizeAccentPattern(state.accentBarTwo, state.subdivisionMode, state.activeBarTwo);
+    state.accents = preset.pattern.map(() => false);
+    state.accentsBarTwo = preset.patternBarTwo.map(() => false);
     state.currentEditorBar = 1;
     applyStateToControls();
     syncStoredState();
@@ -1830,6 +1845,13 @@ function applyPreset(presetId) {
 }
 
 function attachEventListeners() {
+  [elements.grid, elements.barOneGrid, elements.barTwoGrid].forEach(grid => {
+    window.StrumLoopAccents.attachLongPress(grid, slot => toggleAccent(Number(slot.dataset.slotIndex), Number(slot.dataset.barNumber)));
+  });
+  elements.volumeAccentBtn.addEventListener("click", () => setAccentSound("volume"));
+  elements.clackAccentBtn.addEventListener("click", () => setAccentSound("clack"));
+  elements.strumsEditBtn.addEventListener("click", () => setEditMode("strums"));
+  elements.accentsEditBtn.addEventListener("click", () => setEditMode("accents"));
   elements.randomizeBtn.addEventListener("click", randomizePattern);
   elements.clearBtn.addEventListener("click", clearPattern);
   elements.fillBtn.addEventListener("click", fillPattern);
@@ -1993,29 +2015,20 @@ function attachEventListeners() {
       d: 14,
       f: 15,
     };
-    const digitCodeMap = {
-      Digit1: 0,
-      Digit2: 1,
-      Digit3: 2,
-      Digit4: 3,
-      Digit5: 4,
-      Digit6: 5,
-      Digit7: 6,
-      Digit8: 7,
-    };
-    const slotIndex =
-      slotShortcutMap[event.key.toLowerCase()] ?? (event.shiftKey ? digitCodeMap[event.code] : undefined);
+    const shiftedDigit = event.shiftKey && /^Digit[1-8]$/.test(event.code) ? Number(event.code.slice(-1)) - 1 : undefined;
+    const slotIndex = slotShortcutMap[event.key.toLowerCase()] ?? shiftedDigit;
 
     if (Number.isInteger(slotIndex) && slotIndex < getEditablePattern().length) {
-      if (event.shiftKey) {
-        toggleAccent(slotIndex);
-      } else {
-        toggleSlot(slotIndex);
-      }
+      if (event.shiftKey) toggleAccent(slotIndex);
+      else toggleSlot(slotIndex);
       return;
     }
 
     if (event.code === "Space") {
+      // Focused buttons use their native keyboard activation.
+      if (activeTag === "BUTTON") {
+        return;
+      }
       event.preventDefault();
       toggleMetronome();
     }
