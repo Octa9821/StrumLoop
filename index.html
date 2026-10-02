@@ -246,7 +246,7 @@
           <button class="mode-button" id="strumsEditBtn" type="button" aria-pressed="true">Strums</button>
           <button class="mode-button" id="accentsEditBtn" type="button" aria-pressed="false">Accents</button>
         </div>
-        <p id="patternEditHint">Click or tap a slot to toggle its strum. &gt; marks an accented strum.</p>
+        <p id="patternEditHint">Click or tap a slot to toggle its strum. Shift+click or hold an active strum to accent it (&gt;).</p>
       </div>
       <div class="grid" id="grid"></div>
 
@@ -273,7 +273,7 @@
         <span class="legend-mobile-text">Tap to edit strums or accents in the selected mode</span>
       </div>
       <div class="pill legend-keyboard-tip">Keyboard: 1-8, then Q-R / A-F in 16th mode</div>
-      <div class="pill legend-keyboard-tip">Space = start/stop; on a focused button, activate it</div>
+      <div class="pill legend-keyboard-tip">Shift + slot key = accent; Space = start/stop</div>
       <div class="pill legend-keyboard-tip">T = tap tempo</div>
       <div class="pill legend-keyboard-tip">R = randomize</div>
       <div class="pill legend-keyboard-tip">C = clear</div>
@@ -312,6 +312,14 @@
           <label class="field" for="songMetroVolume"><span>Metro volume</span><input id="songMetroVolume" type="range" min="0" max="100" value="55" /></label>
           <label class="field" for="songStrumVolume"><span>Strum volume</span><input id="songStrumVolume" type="range" min="0" max="100" value="70" /></label>
         </div>
+        <div class="accent-sound-control">
+          <span class="accent-sound-label">Accent sound</span>
+          <div class="mode-toggle" role="group" aria-label="Song accent sound">
+            <button class="mode-button" id="songVolumeAccentBtn" type="button" aria-pressed="true" aria-describedby="songAccentSoundHint">Volume</button>
+            <button class="mode-button" id="songClackAccentBtn" type="button" aria-pressed="false" aria-describedby="songAccentSoundHint">Clack</button>
+          </div>
+          <p class="accent-sound-hint" id="songAccentSoundHint">Accents play a louder strum.</p>
+        </div>
       </section>
 
       <section class="panel song-transport" aria-label="Song playback">
@@ -320,6 +328,13 @@
           <button id="stopSongBtn" type="button" disabled>Stop</button>
           <label class="field checkbox" for="loopSongToggle"><input id="loopSongToggle" type="checkbox" /><span>Loop song</span></label>
           <button class="secondary" id="addSectionBtn" type="button">Add Section</button>
+        </div>
+        <div class="pattern-editor-toolbar">
+          <div class="mode-toggle" role="group" aria-label="Song editing mode">
+            <button class="mode-button" id="songStrumsEditBtn" type="button" aria-pressed="true">Strums</button>
+            <button class="mode-button" id="songAccentsEditBtn" type="button" aria-pressed="false">Accents</button>
+          </div>
+          <p id="songEditHint">Click or tap to edit strums. Shift+click or hold an active strum to accent it (&gt;).</p>
         </div>
         <div class="status" id="songStatus" aria-live="polite">Ready</div>
       </section>
@@ -440,6 +455,7 @@
   </main>
 
   <script src="song-core.js" defer></script>
+  <script src="accents.js" defer></script>
   <script src="app.js" defer></script>
   <script src="song.js" defer></script>
   <script src="controls.js" defer></script>

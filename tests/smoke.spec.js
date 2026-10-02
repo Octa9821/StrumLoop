@@ -199,6 +199,44 @@ test("rhythm buttons align and section identity animates through reordering", as
   await expect.poll(() => page.evaluate(() => window.__sectionAnimationCount)).toBeGreaterThan(0);
 });
 
+test("Trainer shift-click accents a slot and leaves active state alone on removal", async ({ page }) => {
+  const firstSlot = page.locator("#grid .slot").first();
+  await expect(firstSlot).toHaveClass(/active/);
+  await firstSlot.click({ modifiers: ["Shift"] });
+  await expect(firstSlot).toHaveClass(/accent/);
+  await expect(firstSlot).toHaveClass(/active/);
+  await firstSlot.click({ modifiers: ["Shift"] });
+  await expect(firstSlot).not.toHaveClass(/accent/);
+  await expect(firstSlot).toHaveClass(/active/);
+});
+
+test("Shift+number keyboard shortcut accents the Trainer slot", async ({ page }) => {
+  const firstSlot = page.locator("#grid .slot").first();
+  await page.keyboard.press("Shift+Digit1");
+  await expect(firstSlot).toHaveClass(/accent/);
+});
+
+test("Song Builder shift-click accents a slot", async ({ page }) => {
+  await page.locator("#songModeBtn").click();
+  const firstSlot = page.locator(".song-grid .slot").first();
+  await expect(firstSlot).toHaveClass(/active/);
+  await firstSlot.click({ modifiers: ["Shift"] });
+  await expect(firstSlot).toHaveClass(/accent/);
+});
+
+test("accent styling introduces no overflow in 16th-note mode at mobile width", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator("#songModeBtn").click();
+  await page.locator("#songSixteenthBtn").click();
+  await page.locator(".song-grid .slot").first().click({ modifiers: ["Shift"] });
+  await expectContained(page, [".song-grid", ".song-slot", ".song-grid .slot"]);
+
+  await page.locator("#trainerModeBtn").click();
+  await page.locator("#sixteenthModeBtn").click();
+  await page.locator('.grid[data-mode="16th"]:visible .slot').first().click({ modifiers: ["Shift"] });
+  await expectContained(page, ['.grid[data-mode="16th"]', '.grid[data-mode="16th"] .slot']);
+});
+
 test("whole-song playback anticipates and focuses the next section", async ({ page }) => {
   await page.locator("#songModeBtn").click();
   await page.locator('[data-section-name]').fill("Verse");

@@ -4,6 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 
+const accentSource = readFileSync(path.join(__dirname, "../accents.js"), "utf8");
 const appSource = readFileSync(path.join(__dirname, "../app.js"), "utf8");
 const markup = readFileSync(path.join(__dirname, "../index.html"), "utf8");
 const stateKey = "strumming-pattern-builder:state";
@@ -109,13 +110,14 @@ function createApp({ stored, library, search = "", desktop = true } = {}) {
     AudioContext,
   };
   const context = vm.createContext({ window, document, console, URL, URLSearchParams });
+  vm.runInContext(accentSource, context, { filename: "accents.js" });
   vm.runInContext(appSource, context, { filename: "app.js" });
   const run = (source) => vm.runInContext(source, context);
   const snapshot = () => JSON.parse(JSON.stringify(run("getSerializableState()")));
   return {
     run, snapshot, elements, document, storage, voices, media,
-    key(key, code = key) {
-      const event = { key, code, preventDefault() { this.defaultPrevented = true; } };
+    key(key, code = key, modifiers = {}) {
+      const event = { key, code, ...modifiers, preventDefault() { this.defaultPrevented = true; } };
       listeners.keydown(event);
       return event;
     },
@@ -460,4 +462,19 @@ test("accents leave metronome/count-in unchanged and affect only future schedule
   app.run("toggleSlot(0); scheduleStep(0, 3, 1)");
   assert.equal(app.voices[0].gain.events[1][1], previousPeak);
   assert.equal(app.voices[3].gain.events[1][1], previousPeak * 2.5);
+});
+
+test("Shift slot shortcuts accent active notes without changing the selected editing mode", () => {
+  const app = createApp();
+  app.key("!", "Digit1", { shiftKey: true });
+  assert.equal(app.snapshot().accents[0], true);
+  assert.equal(app.run("state.editMode"), "strums");
+  app.key("@", "Digit2", { shiftKey: true });
+  assert.equal(app.snapshot().active[1], false);
+  assert.equal(app.snapshot().accents[1], false);
+  app.run('setSubdivisionMode("16th"); fillPattern()');
+  app.key("Q", "KeyQ", { shiftKey: true });
+  assert.equal(app.snapshot().accents[8], true);
+  app.key("Q", "KeyQ", { shiftKey: true, metaKey: true });
+  assert.equal(app.snapshot().accents[8], true);
 });

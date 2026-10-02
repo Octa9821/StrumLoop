@@ -22,6 +22,8 @@
     savedName: $("savedSongName"), savedStatus: $("savedSongStatus"), savedList: $("savedSongList"),
     copy: $("copySongLinkBtn"), export: $("exportSongBtn"), import: $("importSongBtn"), importFile: $("importSongFile"),
     shareStatus: $("songShareStatus"),
+    strumsEdit: $("songStrumsEditBtn"), accentsEdit: $("songAccentsEditBtn"), editHint: $("songEditHint"),
+    volumeAccent: $("songVolumeAccentBtn"), clackAccent: $("songClackAccentBtn"), accentSoundHint: $("songAccentSoundHint"),
   };
 
   let loadMessage = "";
@@ -31,6 +33,8 @@
   let sectionTints = new Map();
   let nextSectionTint = 0;
   let statusTimer = null;
+  let editMode = "strums";
+  let longPress;
   const transport = {
     timerId: null, audioContext: null, nextNoteTime: 0, cursor: Core.initialCursor(0), mode: "song",
     sectionIndex: 0, countInRemaining: 0, completedBars: 0, startBpm: null, current: null, uiTimeouts: [], finishTimeout: null,
@@ -78,6 +82,7 @@
 
   function setAppMode(mode) {
     const isSong = mode === "song";
+    longPress?.cancel();
     if (isSong && typeof window.stopMetronome === "function") window.stopMetronome();
     stopPlayback();
     elements.trainerMode.hidden = isSong;
@@ -97,6 +102,9 @@
     elements.strum.checked = song.strumEnabled; elements.strumDown.checked = song.strumDownEnabled; elements.strumUp.checked = song.strumUpEnabled;
     elements.metroVolume.value = song.metronomeVolume; elements.strumVolume.value = song.strumVolume;
     elements.loopSong.checked = song.loopSong;
+    elements.volumeAccent.setAttribute("aria-pressed", String(song.accentSound === "volume"));
+    elements.clackAccent.setAttribute("aria-pressed", String(song.accentSound === "clack"));
+    elements.accentSoundHint.textContent = song.accentSound === "clack" ? "Accents add a quiet clack to the normal strum." : "Accents play a louder strum.";
     window.StrumLoopControls?.sync();
   }
 
@@ -120,6 +128,7 @@
   }
 
   function renderSections() {
+    longPress?.cancel();
     elements.sections.innerHTML = song.sections.map((section, sectionIndex) => {
       const isCollapsed = collapsedSections.has(section.id);
       const playing = transport.current && transport.current.sectionIndex === sectionIndex;
@@ -153,8 +162,9 @@
     return `<section class="song-bar"><h3>Bar ${barIndex + 1}</h3><div class="song-grid" data-mode="${song.subdivisionMode}">
       ${labels.map(({ count, direction }, slotIndex) => {
         const current = transport.current && transport.current.sectionIndex === sectionIndex && transport.current.barIndex === barIndex && transport.current.stepIndex === slotIndex;
+        const isAccented = Boolean(bar.accents[slotIndex]);
         return `<div class="song-slot${current ? " current-step" : ""}">
-          <button class="slot${bar.pattern[slotIndex] ? " active" : ""}" type="button" data-action="slot" data-id="${section.id}" data-bar="${barIndex}" data-slot="${slotIndex}" aria-pressed="${bar.pattern[slotIndex]}" aria-label="${escapeHtml(section.name)}, bar ${barIndex + 1}, ${count} ${direction}"><span class="slot-number">${count}</span><span class="slot-direction">${direction}</span></button>
+          <button class="slot${bar.pattern[slotIndex] ? " active" : ""}${isAccented ? " accented" : ""}" type="button" data-action="slot" data-id="${section.id}" data-bar="${barIndex}" data-slot="${slotIndex}" aria-pressed="${editMode === "accents" ? isAccented : bar.pattern[slotIndex]}" aria-disabled="${editMode === "accents" && !bar.pattern[slotIndex]}" aria-describedby="songEditHint" aria-label="${escapeHtml(section.name)}, bar ${barIndex + 1}, ${count} ${direction}, ${!bar.pattern[slotIndex] ? "rest" : isAccented ? "accented strum" : "normal strum"}"><span class="slot-number">${count}</span><span class="slot-direction">${direction}</span><span class="slot-accent" aria-hidden="true"${isAccented ? "" : " hidden"}>&gt;</span></button>
           <input class="chord-input" data-chord="${section.id}" data-bar="${barIndex}" data-slot="${slotIndex}" maxlength="12" value="${escapeHtml(bar.chords[slotIndex] || "")}" placeholder="Chord" aria-label="Chord at ${count} ${direction}" />
         </div>`;
       }).join("")}</div></section>`;
@@ -163,6 +173,45 @@
   function sectionById(id) { return song.sections.find(section => section.id === id); }
   function sectionIndexById(id) { return song.sections.findIndex(section => section.id === id); }
   function commitAndRender() { persistSong(); renderSections(); }
+  function updateSongSlot(button, bar, slot) {
+    const labels = subdivisions()[slot];
+    const section = sectionById(button.dataset.id);
+    const description = !bar.pattern[slot] ? "rest" : bar.accents[slot] ? "accented strum" : "normal strum";
+    button.classList.toggle("active", bar.pattern[slot]);
+    button.classList.toggle("accented", bar.accents[slot]);
+    button.setAttribute("aria-pressed", String(editMode === "accents" ? bar.accents[slot] : bar.pattern[slot]));
+    button.setAttribute("aria-disabled", String(editMode === "accents" && !bar.pattern[slot]));
+    button.setAttribute("aria-label", `${section.name}, bar ${Number(button.dataset.bar) + 1}, ${labels.count} ${labels.direction}, ${description}`);
+    button.querySelector(".slot-accent").hidden = !bar.accents[slot];
+  }
+  function editSongSlot(button, accentOnly) {
+    const section = sectionById(button.dataset.id);
+    const bar = section && section.bars[Number(button.dataset.bar)];
+    const slot = Number(button.dataset.slot);
+    if (!bar || !Number.isInteger(slot) || slot < 0 || slot >= bar.pattern.length) return;
+    if (accentOnly || editMode === "accents") {
+      if (!bar.pattern[slot]) return;
+      bar.accents[slot] = !bar.accents[slot];
+    } else {
+      bar.pattern[slot] = !bar.pattern[slot];
+      if (!bar.pattern[slot]) bar.accents[slot] = false;
+    }
+    persistSong();
+    updateSongSlot(button, bar, slot);
+  }
+  function setEditMode(mode) {
+    longPress?.cancel();
+    editMode = mode === "accents" ? "accents" : "strums";
+    elements.strumsEdit.setAttribute("aria-pressed", String(editMode === "strums"));
+    elements.accentsEdit.setAttribute("aria-pressed", String(editMode === "accents"));
+    elements.editHint.textContent = editMode === "accents"
+      ? "Click or tap an active strum to toggle its accent (>). Rests cannot be accented."
+      : "Click or tap to edit strums. Shift+click or hold an active strum to accent it (>).";
+    elements.sections.querySelectorAll('[data-action="slot"]').forEach(button => {
+      const section = sectionById(button.dataset.id);
+      updateSongSlot(button, section.bars[Number(button.dataset.bar)], Number(button.dataset.slot));
+    });
+  }
   function structuralChange(update) { stopPlayback(); update(); commitAndRender(); }
 
   function captureSectionPositions() {
@@ -219,7 +268,7 @@
   }
   function setSongMode(mode) {
     if (mode === song.subdivisionMode) return;
-    if (mode === Core.MODES.eighth && Core.hasLossySixteenthData(song) && !window.confirm("Changing to 8th notes will remove strums and chords on e/a slots. Continue?")) return;
+    if (mode === Core.MODES.eighth && Core.hasLossySixteenthData(song) && !window.confirm("Changing to 8th notes will remove strums, accents, and chords on e/a slots. Continue?")) return;
     stopPlayback(); song = Core.convertSongMode(song, mode); applySongToControls(); commitAndRender();
   }
 
@@ -267,10 +316,12 @@
     if (!transport.audioContext) transport.audioContext = new (window.AudioContext || window.webkitAudioContext)();
     if (transport.audioContext.state === "suspended") transport.audioContext.resume();
   }
-  function tone(frequency, volume, when, duration, type) {
+  function tone(frequency, volume, when, duration, type, attack = 0.003, releaseShape = "exponential") {
     if (volume <= 0) return; ensureAudio(); const oscillator = transport.audioContext.createOscillator(); const gain = transport.audioContext.createGain();
     oscillator.type = type || "sine"; oscillator.frequency.value = frequency; gain.gain.setValueAtTime(0.0001, when);
-    gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, volume), when + 0.003); gain.gain.exponentialRampToValueAtTime(0.0001, when + duration);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, volume), when + attack);
+    if (releaseShape === "linear") gain.gain.linearRampToValueAtTime(0.0001, when + duration);
+    else gain.gain.exponentialRampToValueAtTime(0.0001, when + duration);
     oscillator.connect(gain); gain.connect(transport.audioContext.destination); oscillator.start(when); oscillator.stop(when + duration + 0.01);
   }
   function click(stepIndex, when, force) {
@@ -282,7 +333,11 @@
     const bar = song.sections[cursor.sectionIndex].bars[cursor.barIndex]; if (!song.strumEnabled || !bar.pattern[stepIndex]) return;
     const down = stepIndex % 2 === 0; const frequencies = down ? [196,247,294] : [294,370,440];
     if ((down && !song.strumDownEnabled) || (!down && !song.strumUpEnabled)) return;
-    frequencies.forEach((frequency, index) => tone(frequency, song.strumVolume / 100 * (0.11 - index * 0.02), when + index * 0.01, 0.12, index === 1 ? "triangle" : "sine"));
+    const accentMultiplier = bar.accents[stepIndex] && song.accentSound === "volume" ? window.StrumLoopAccents.volumeMultiplier : 1;
+    frequencies.forEach((frequency, index) => tone(frequency, song.strumVolume / 100 * (0.11 - index * 0.02) * accentMultiplier, when + index * 0.01, 0.12, index === 1 ? "triangle" : "sine"));
+    if (bar.accents[stepIndex] && song.accentSound === "clack") {
+      window.StrumLoopAccents.clackVoices.forEach(voice => tone(voice.frequency, song.strumVolume / 100 * voice.gain, when, voice.duration, "square", 0.0015, "linear"));
+    }
   }
   function stepSeconds() { return song.subdivisionMode === Core.MODES.sixteenth ? 15 / song.bpm : 30 / song.bpm; }
 
@@ -385,6 +440,18 @@
   }
 
   function attachListeners() {
+    longPress = window.StrumLoopAccents.attachLongPress(elements.sections, button => editSongSlot(button, true));
+    elements.strumsEdit.addEventListener("click", () => setEditMode("strums"));
+    elements.accentsEdit.addEventListener("click", () => setEditMode("accents"));
+    [[elements.volumeAccent, "volume"], [elements.clackAccent, "clack"]].forEach(([button, sound]) => button.addEventListener("click", () => {
+      song.accentSound = sound; persistSong(); applySongToControls();
+    }));
+    elements.sections.addEventListener("keydown", event => {
+      const button = event.target.closest('[data-action="slot"]');
+      if (button && event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && ["Space", "Enter"].includes(event.code)) {
+        event.preventDefault(); editSongSlot(button, true);
+      }
+    });
     elements.trainerModeBtn.addEventListener("click", () => setAppMode("trainer")); elements.songModeBtn.addEventListener("click", () => setAppMode("song"));
     elements.add.addEventListener("click", addSection); elements.play.addEventListener("click", () => startPlayback("song", 0)); elements.stop.addEventListener("click", () => stopPlayback());
     elements.title.addEventListener("input", event => { song.title = event.target.value.trim().slice(0, 80); persistSong(); });
@@ -393,7 +460,7 @@
     [[elements.countIn,"countInEnabled"],[elements.practiceRamp,"practiceRampEnabled"],[elements.metronome,"metronomeEnabled"],[elements.metroDown,"metronomeDownEnabled"],[elements.metroUp,"metronomeUpEnabled"],[elements.strum,"strumEnabled"],[elements.strumDown,"strumDownEnabled"],[elements.strumUp,"strumUpEnabled"],[elements.loopSong,"loopSong"]].forEach(([control,key]) => control.addEventListener("change", event => { song[key] = event.target.checked; persistSong(); }));
     elements.sections.addEventListener("click", event => {
       const button = event.target.closest("[data-action]"); if (!button) return; const id = button.dataset.id; const action = button.dataset.action;
-      if (action === "slot") { const section = sectionById(id); const bar = section && section.bars[Number(button.dataset.bar)]; if (!bar) return; bar.pattern[Number(button.dataset.slot)] = !bar.pattern[Number(button.dataset.slot)]; commitAndRender(); }
+      if (action === "slot") editSongSlot(button, event.shiftKey);
       if (action === "loop") startPlayback("section", sectionIndexById(id)); if (action === "up") moveSection(id, -1); if (action === "down") moveSection(id, 1);
       if (action === "bars") setBarCount(id, button.dataset.value);
       if (action === "duplicate") duplicateSection(id); if (action === "delete") deleteSection(id);

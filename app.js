@@ -12,7 +12,7 @@ const SCHEDULER_LOOKAHEAD_MS = 25;
 const SCHEDULE_AHEAD_SECONDS = 0.12;
 const FIRST_NOTE_LEAD_SECONDS = 0.04;
 const DESKTOP_TWO_BAR_QUERY = "(min-width: 900px)";
-const STRUM_ACCENT_GAIN = 2.5;
+const STRUM_ACCENT_GAIN = window.StrumLoopAccents.volumeMultiplier;
 const DEFAULT_STATE = {
   subdivisionMode: SUBDIVISION_MODES.eighth,
   active: [true, false, true, false, true, false, true, false],
@@ -1044,7 +1044,7 @@ function renderGrid() {
   elements.patternEditHint.textContent =
     state.editMode === "accents"
       ? "Click or tap an active strum to toggle its accent (>). Rests cannot be accented."
-      : "Click or tap a slot to toggle its strum. > marks an accented strum.";
+      : "Click or tap a slot to toggle its strum. Shift+click or hold an active strum to accent it (>).";
   const focusedSlot = document.activeElement;
   const focusedIndex = focusedSlot?.dataset.slotIndex;
   const focusedBar = focusedSlot?.dataset.barNumber;
@@ -1111,7 +1111,10 @@ function renderGridInto({ container, pattern, currentStep, barNumber }) {
         <div class="slot-direction"></div>
         <span class="slot-accent" aria-hidden="true">&gt;</span>
       `;
-      slot.addEventListener("click", () => toggleSlot(index, Number(slot.dataset.barNumber)));
+      slot.addEventListener("click", event => {
+        if (event.shiftKey) toggleAccent(index, Number(slot.dataset.barNumber));
+        else toggleSlot(index, Number(slot.dataset.barNumber));
+      });
       container.appendChild(slot);
     }
     const classes = ["slot"];
@@ -1335,6 +1338,17 @@ function formatPatternLine(pattern, accents) {
   });
 
   return `<div class="pattern-tokens">${parts.join("")}</div>`;
+}
+
+function toggleAccent(index, barNumber = state.currentEditorBar) {
+  const pattern = getPatternForBar(barNumber);
+  if (!Number.isInteger(index) || index < 0 || index >= pattern.length || !pattern[index]) return;
+  state.currentEditorBar = barNumber;
+  const accents = getAccentsForBar(barNumber);
+  accents[index] = !accents[index];
+  syncStoredState();
+  renderPresetLibrary();
+  render();
 }
 
 function toggleSlot(index, barNumber = state.currentEditorBar) {
@@ -1636,25 +1650,15 @@ function playStrumSound(stepIndex, when, loopBar = 1) {
   });
 
   if (isAccented && state.accentSound === "clack") {
-    // Bright, non-harmonic voices give accents a distinct metallic attack.
-    playToneAt({
-      frequency: 800,
-      volume: baseVolume * 0.06,
-      duration: 0.09,
+    window.StrumLoopAccents.clackVoices.forEach(voice => playToneAt({
+      frequency: voice.frequency,
+      volume: baseVolume * voice.gain,
+      duration: voice.duration,
       type: "square",
       when,
       attack: 0.0015,
       releaseShape: "linear",
-    });
-    playToneAt({
-      frequency: 1100,
-      volume: baseVolume * 0.036,
-      duration: 0.06,
-      type: "square",
-      when,
-      attack: 0.0015,
-      releaseShape: "linear",
-    });
+    }));
   }
 }
 
@@ -1841,6 +1845,9 @@ function applyPreset(presetId) {
 }
 
 function attachEventListeners() {
+  [elements.grid, elements.barOneGrid, elements.barTwoGrid].forEach(grid => {
+    window.StrumLoopAccents.attachLongPress(grid, slot => toggleAccent(Number(slot.dataset.slotIndex), Number(slot.dataset.barNumber)));
+  });
   elements.volumeAccentBtn.addEventListener("click", () => setAccentSound("volume"));
   elements.clackAccentBtn.addEventListener("click", () => setAccentSound("clack"));
   elements.strumsEditBtn.addEventListener("click", () => setEditMode("strums"));
@@ -2008,10 +2015,12 @@ function attachEventListeners() {
       d: 14,
       f: 15,
     };
-    const slotIndex = slotShortcutMap[event.key.toLowerCase()];
+    const shiftedDigit = event.shiftKey && /^Digit[1-8]$/.test(event.code) ? Number(event.code.slice(-1)) - 1 : undefined;
+    const slotIndex = slotShortcutMap[event.key.toLowerCase()] ?? shiftedDigit;
 
     if (Number.isInteger(slotIndex) && slotIndex < getEditablePattern().length) {
-      toggleSlot(slotIndex);
+      if (event.shiftKey) toggleAccent(slotIndex);
+      else toggleSlot(slotIndex);
       return;
     }
 

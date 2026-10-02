@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "check": "node --check app.js && node --check song-core.js && node --check song.js && node --check controls.js",
+    "check": "node --check accents.js && node --check app.js && node --check song-core.js && node --check song.js && node --check controls.js",
     "test:unit": "node --test tests/song-core.test.js tests/accents.test.cjs",
     "test:smoke": "playwright test",
     "test": "npm run check && npm run test:unit && npm run test:smoke"
