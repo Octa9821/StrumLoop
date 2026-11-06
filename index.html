@@ -84,7 +84,7 @@
               </div>
             </div>
           </div>
-          <div class="status" id="metronomeStatus">Stopped · eighth-note pulse</div>
+          <div class="status" id="metronomeStatus">Stopped · beat clicks</div>
         </section>
 
         <section class="control-card" aria-label="Tempo controls">
@@ -137,12 +137,22 @@
               <span>Metronome clicks</span>
             </label>
 
-            <label class="field checkbox" for="metronomeDownToggle">
+            <label class="field" for="metronomePulse">
+              <span>Metronome clicks</span>
+              <select id="metronomePulse" aria-describedby="metronomePulseHint">
+                <option value="quarter">Beats — 1 2 3 4</option>
+                <option value="8th">8th notes — 1 + 2 + …</option>
+                <option value="16th">16th notes — 1 e + a …</option>
+                <option id="metronomeLegacyOption" value="legacy" hidden disabled>Custom (legacy)</option>
+              </select>
+            </label>
+            <p class="metronome-hint" id="metronomePulseHint">Click subdivision is independent of the strumming grid. BPM follows beats 1, 2, 3, 4.</p>
+            <label class="field checkbox" id="metronomeLegacyDown" for="metronomeDownToggle" hidden>
               <input id="metronomeDownToggle" type="checkbox" checked />
               <span>Metro ↓</span>
             </label>
 
-            <label class="field checkbox" for="metronomeUpToggle">
+            <label class="field checkbox" id="metronomeLegacyUp" for="metronomeUpToggle" hidden>
               <input id="metronomeUpToggle" type="checkbox" checked />
               <span>Metro ↑</span>
             </label>
@@ -304,8 +314,16 @@
           <label class="field field-compact" for="songRampStep"><span>+ BPM</span><input id="songRampStep" type="number" min="1" max="20" value="2" /></label>
           <label class="field field-compact" for="songRampBars"><span>Every bars</span><input id="songRampBars" type="number" min="1" max="16" value="2" /></label>
           <label class="field checkbox" for="songMetronome"><input id="songMetronome" type="checkbox" checked /><span>Metronome</span></label>
-          <label class="field checkbox" for="songMetroDown"><input id="songMetroDown" type="checkbox" checked /><span>Metro ↓</span></label>
-          <label class="field checkbox" for="songMetroUp"><input id="songMetroUp" type="checkbox" checked /><span>Metro ↑</span></label>
+          <label class="field" for="songMetronomePulse"><span>Metronome clicks</span>
+              <select id="songMetronomePulse" aria-describedby="songMetronomePulseHint">
+                <option value="quarter">Beats — 1 2 3 4</option>
+                <option value="8th">8th notes — 1 + 2 + …</option>
+                <option value="16th">16th notes — 1 e + a …</option>
+                <option id="songMetronomeLegacyOption" value="legacy" hidden disabled>Custom (legacy)</option>
+              </select></label>
+          <p class="metronome-hint" id="songMetronomePulseHint">Click subdivision is independent of the strumming grid. BPM follows beats 1, 2, 3, 4.</p>
+          <label class="field checkbox" id="songMetronomeLegacyDown" for="songMetroDown" hidden><input id="songMetroDown" type="checkbox" checked /><span>Metro ↓</span></label>
+          <label class="field checkbox" id="songMetronomeLegacyUp" for="songMetroUp" hidden><input id="songMetroUp" type="checkbox" checked /><span>Metro ↑</span></label>
           <label class="field checkbox" for="songStrum"><input id="songStrum" type="checkbox" checked /><span>Strum sound</span></label>
           <label class="field checkbox" for="songStrumDown"><input id="songStrumDown" type="checkbox" checked /><span>Strum ↓</span></label>
           <label class="field checkbox" for="songStrumUp"><input id="songStrumUp" type="checkbox" checked /><span>Strum ↑</span></label>
@@ -413,6 +431,9 @@
             <span class="faq-inline-label">e</span> and <span class="faq-inline-label">a</span> so you can practice
             denser patterns like
             <span class="faq-inline-label">1 e + a 2 e + a 3 e + a 4 e + a</span>.
+            Choose Metronome clicks independently: Beats, 8th notes, or 16th notes.
+            At 60 BPM, beats 1, 2, 3, 4 stay one second apart in every mode.
+            Older links and saved settings keep their original clicks under Custom (legacy).
           </p>
         </details>
       </div>
@@ -454,6 +475,7 @@
     </footer>
   </main>
 
+  <script src="metronome.js" defer></script>
   <script src="song-core.js" defer></script>
   <script src="accents.js" defer></script>
   <script src="app.js" defer></script>

@@ -15,6 +15,7 @@
     trainerMode: $("trainerMode"), songMode: $("songMode"), trainerModeBtn: $("trainerModeBtn"), songModeBtn: $("songModeBtn"),
     title: $("songTitle"), eighth: $("songEighthBtn"), sixteenth: $("songSixteenthBtn"), bpm: $("songBpm"),
     countIn: $("songCountIn"), practiceRamp: $("songPracticeRamp"), rampStep: $("songRampStep"), rampBars: $("songRampBars"),
+    metronomePulse: $("songMetronomePulse"), legacyOption: $("songMetronomeLegacyOption"), legacyDown: $("songMetronomeLegacyDown"), legacyUp: $("songMetronomeLegacyUp"),
     metronome: $("songMetronome"), metroDown: $("songMetroDown"), metroUp: $("songMetroUp"), strum: $("songStrum"),
     strumDown: $("songStrumDown"), strumUp: $("songStrumUp"), metroVolume: $("songMetroVolume"),
     strumVolume: $("songStrumVolume"), loopSong: $("loopSongToggle"), play: $("playSongBtn"), stop: $("stopSongBtn"),
@@ -98,6 +99,10 @@
     elements.sixteenth.setAttribute("aria-pressed", song.subdivisionMode === Core.MODES.sixteenth ? "true" : "false");
     elements.bpm.value = song.bpm; elements.countIn.checked = song.countInEnabled; elements.practiceRamp.checked = song.practiceRampEnabled;
     elements.rampStep.value = song.practiceRampStepBpm; elements.rampBars.value = song.practiceRampEveryBars;
+    elements.metronomePulse.value = song.metronomePulse;
+    const legacy = song.metronomePulse === "legacy";
+    elements.legacyOption.hidden = !legacy; elements.legacyOption.disabled = !legacy;
+    elements.legacyDown.hidden = !legacy; elements.legacyUp.hidden = !legacy;
     elements.metronome.checked = song.metronomeEnabled; elements.metroDown.checked = song.metronomeDownEnabled; elements.metroUp.checked = song.metronomeUpEnabled;
     elements.strum.checked = song.strumEnabled; elements.strumDown.checked = song.strumDownEnabled; elements.strumUp.checked = song.strumUpEnabled;
     elements.metroVolume.value = song.metronomeVolume; elements.strumVolume.value = song.strumVolume;
@@ -324,10 +329,10 @@
     else gain.gain.exponentialRampToValueAtTime(0.0001, when + duration);
     oscillator.connect(gain); gain.connect(transport.audioContext.destination); oscillator.start(when); oscillator.stop(when + duration + 0.01);
   }
-  function click(stepIndex, when, force) {
-    if (!song.metronomeEnabled && !force) return; const down = stepIndex % 2 === 0;
-    if (!force && ((down && !song.metronomeDownEnabled) || (!down && !song.metronomeUpEnabled))) return;
-    tone(down ? 1180 : 1620, song.metronomeVolume / 100 * (down ? 0.24 : 0.16), when, 0.045, "sine");
+  function click(stepIndex, when, force, stepDuration = stepSeconds()) {
+    if (!song.metronomeEnabled && !force) return;
+    const clicks = force ? [{ offset: 0, strong: true }] : window.StrumLoopMetronome.clicksForStep(song, stepIndex, stepDuration);
+    clicks.forEach(({ offset, strong }) => tone(strong ? 1180 : 1620, song.metronomeVolume / 100 * (strong ? 0.24 : 0.16), when + offset, 0.045, "sine"));
   }
   function strum(stepIndex, when, cursor) {
     const bar = song.sections[cursor.sectionIndex].bars[cursor.barIndex]; if (!song.strumEnabled || !bar.pattern[stepIndex]) return;
@@ -404,7 +409,8 @@
         const beat = 5 - transport.countInRemaining; click((beat - 1) * (song.subdivisionMode === Core.MODES.sixteenth ? 4 : 2), transport.nextNoteTime, true);
         transport.countInRemaining -= 1; transport.nextNoteTime += 60 / song.bpm; continue;
       }
-      const current = { ...transport.cursor }; click(current.stepIndex, transport.nextNoteTime, false); strum(current.stepIndex, transport.nextNoteTime, current); queueUi(transport.nextNoteTime, current);
+      const duration = stepSeconds();
+      const current = { ...transport.cursor }; click(current.stepIndex, transport.nextNoteTime, false, duration); strum(current.stepIndex, transport.nextNoteTime, current); queueUi(transport.nextNoteTime, current);
       const result = Core.advanceCursor(song, transport.cursor, { sectionOnly: transport.mode === "section" });
       if (result.completedBar) {
         transport.completedBars += 1;
@@ -412,7 +418,7 @@
           song.bpm = Math.min(220, song.bpm + song.practiceRampStepBpm); elements.bpm.value = song.bpm; persistSong(); window.StrumLoopControls?.sync();
         }
       }
-      transport.cursor = result.cursor; transport.nextNoteTime += stepSeconds();
+      transport.cursor = result.cursor; transport.nextNoteTime += duration;
       if (result.completedSong && transport.mode === "song" && !song.loopSong) {
         window.clearInterval(transport.timerId); transport.timerId = null;
         transport.finishTimeout = window.setTimeout(() => stopPlayback("Complete"), Math.max(0, (transport.nextNoteTime - transport.audioContext.currentTime) * 1000));
@@ -454,6 +460,10 @@
     });
     elements.trainerModeBtn.addEventListener("click", () => setAppMode("trainer")); elements.songModeBtn.addEventListener("click", () => setAppMode("song"));
     elements.add.addEventListener("click", addSection); elements.play.addEventListener("click", () => startPlayback("song", 0)); elements.stop.addEventListener("click", () => stopPlayback());
+    elements.metronomePulse.addEventListener("change", event => {
+      song.metronomePulse = window.StrumLoopMetronome.sanitizePulse(event.target.value);
+      persistSong(); applySongToControls();
+    });
     elements.title.addEventListener("input", event => { song.title = event.target.value.trim().slice(0, 80); persistSong(); });
     elements.eighth.addEventListener("click", () => setSongMode(Core.MODES.eighth)); elements.sixteenth.addEventListener("click", () => setSongMode(Core.MODES.sixteenth));
     [[elements.bpm,"bpm",40,220],[elements.rampStep,"practiceRampStepBpm",1,20],[elements.rampBars,"practiceRampEveryBars",1,16],[elements.metroVolume,"metronomeVolume",0,100],[elements.strumVolume,"strumVolume",0,100]].forEach(([control,key,min,max]) => control.addEventListener("input", event => { song[key] = Math.min(max, Math.max(min, Number(event.target.value) || (key === "bpm" ? 90 : min))); persistSong(); }));

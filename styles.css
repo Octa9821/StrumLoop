@@ -1986,3 +1986,30 @@ input:not([type]):focus,
   margin-top: 16px;
   max-width: 360px;
 }
+
+/* Native selects retain keyboard navigation and fit narrow control cards. */
+#metronomePulse,
+#songMetronomePulse {
+  max-width: 100%;
+  min-width: 0;
+  width: 100%;
+  padding: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+  color: inherit;
+  background: var(--card);
+}
+.metronome-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+#metronomeLegacyDown[hidden],
+#metronomeLegacyUp[hidden],
+#songMetronomeLegacyDown[hidden],
+#songMetronomeLegacyUp[hidden] {
+  display: none;
+}

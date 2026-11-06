@@ -12,7 +12,8 @@ A free browser-based practice tool for building and looping guitar strumming pat
 - Practice ramp with configurable BPM increase and bar interval
 - Separate metronome and strum playback toggles
 - Separate metronome and strum volume controls
-- Up/down sound toggles for both metronome and strum playback
+- Independent metronome clicks: Beats, 8th notes, or 16th notes
+- Up/down strum sound toggles and legacy metronome settings
 - Pattern tools: randomize, clear, fill, and presets
 - Shareable links for exact patterns and settings
 - `localStorage` persistence for the last-used pattern and settings
@@ -29,6 +30,7 @@ A free browser-based practice tool for building and looping guitar strumming pat
 - `styles.css`: layout and visual styling
 - `app.js`: Trainer rendering, audio playback, interactions, and persistence
 - `accents.js`: shared accent sounds and touch hold handling
+- `metronome.js`: shared click subdivision and legacy compatibility
 - `song-core.js`: versioned song documents, serialization, conversion, and transport logic
 - `song.js`: Song Builder rendering, playback, persistence, sharing, and file transfer
 
@@ -75,7 +77,7 @@ npm run test:smoke -- --project=mobile-390 --project=mobile-412
 ## Manual smoke checklist
 
 - Confirm Trainer start/stop, keyboard shortcuts, presets, saved patterns, and an existing shared pattern link.
-- Hear both metronome and strum sounds, including their down/up and volume controls.
+- Hear both sounds; check metronome subdivisions, strum direction switches, and volume controls.
 - Confirm count-in and practice-ramp behavior, including BPM restoration after stopping.
 - Build a song with one- and two-bar sections, chord labels, repeats, and reordered sections.
 - Loop one section, play a song once, and loop the whole song.
@@ -123,3 +125,21 @@ For browser smoke testing, check both subdivisions and bars on desktop and mobil
 including keyboard focus during playback, save/load, reload, and old share links
 opened over an accented local pattern. Listen to accented and normal strums at
 default settings and at 220 BPM with full-volume dense patterns.
+
+## Metronome clicks
+
+Choose **Metronome clicks** independently of the strumming grid in Trainer or
+Song Builder. **Beats** is the default for new sessions. At 60 BPM, beats 1, 2,
+3, 4 are one second apart, with 4 clicks per 4/4 bar. **8th notes** gives 8
+clicks per bar and **16th notes** gives 16; the bar still lasts four seconds.
+Numbered beats have a stronger click than the subdivisions. Count-in always
+plays four beat clicks (at the selected metronome volume), even with playback
+clicks muted. Changing the click selector during playback affects future
+scheduled steps without restarting the pattern.
+
+Existing browser settings, Trainer pattern links, and Song v1 files/links
+without a pulse setting use **Custom (legacy)**, retaining the original sounds
+and Metro ↓/↑ switches. Choosing a new pulse hides those switches. The old
+flags remain stored; new selections ignore them. The pulse survives reload,
+new share links, saved songs, and Song JSON export/import. Trainer's saved
+pattern library continues to store patterns rather than audio settings.

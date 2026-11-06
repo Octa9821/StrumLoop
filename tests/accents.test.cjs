@@ -110,6 +110,8 @@ function createApp({ stored, library, search = "", desktop = true } = {}) {
     AudioContext,
   };
   const context = vm.createContext({ window, document, console, URL, URLSearchParams });
+  vm.runInContext(readFileSync(path.join(__dirname, "../metronome.js"), "utf8"), context, { filename: "metronome.js" });
+  window.StrumLoopMetronome = context.StrumLoopMetronome;
   vm.runInContext(accentSource, context, { filename: "accents.js" });
   vm.runInContext(appSource, context, { filename: "app.js" });
   const run = (source) => vm.runInContext(source, context);
@@ -477,4 +479,42 @@ test("Shift slot shortcuts accent active notes without changing the selected edi
   assert.equal(app.snapshot().accents[8], true);
   app.key("Q", "KeyQ", { shiftKey: true, metaKey: true });
   assert.equal(app.snapshot().accents[8], true);
+});
+
+test("metronome pulse migration and URL precedence preserve legacy and partial links", () => {
+  assert.equal(createApp().snapshot().metronomePulse, "quarter");
+  assert.equal(createApp({ stored: { bpm: 60 } }).snapshot().metronomePulse, "legacy");
+  for (const search of ['?m=16th&p=aaaa', '?md=0&mu=1']) {
+    const app = createApp({ stored: { metronomePulse: '16th' }, search });
+    assert.equal(app.snapshot().metronomePulse, 'legacy');
+    assert.equal(app.elements.get('metronomeLegacyDown').hidden, false);
+  }
+  assert.equal(createApp({ stored: { metronomePulse: '16th' }, search: '?b=60' }).snapshot().metronomePulse, '16th');
+  assert.equal(createApp({ search: '?mp=bad' }).snapshot().metronomePulse, 'quarter');
+  for (const pulse of ['quarter', '8th', '16th', 'legacy']) {
+    const app = createApp({ stored: { metronomePulse: pulse, metronomeDownEnabled: false } });
+    const url = new URL(app.run('buildShareUrl().href'));
+    assert.equal(url.searchParams.get('mp'), pulse);
+    const reopened = createApp({ stored: { metronomePulse: 'quarter' }, search: url.search });
+    assert.equal(reopened.snapshot().metronomePulse, pulse);
+    assert.equal(reopened.snapshot().metronomeDownEnabled, false);
+    app.run('setSubdivisionMode("16th")');
+    assert.equal(app.snapshot().metronomePulse, pulse);
+  }
+});
+
+test('metronome selector keeps transport running and keyboard input isolated', () => {
+  const app = createApp({ stored: { metronomePulse: 'legacy', countInEnabled: true } });
+  app.run('startMetronome()');
+  const timer = app.run('state.timerId');
+  app.elements.get('metronomePulse').listeners.change({ target: { value: '16th' } });
+  assert.equal(app.run('state.timerId'), timer);
+  assert.equal(app.run('state.countInScheduledBeat'), 1);
+  assert.equal(app.elements.get('metronomeLegacyDown').hidden, true);
+  assert.equal(JSON.parse(app.storage.get(stateKey)).metronomePulse, '16th');
+  app.elements.get('metronomePulse').focus();
+  const before = app.snapshot();
+  app.key('1'); app.key(' ', 'Space');
+  assert.deepEqual(app.snapshot(), before);
+  assert.equal(app.run('state.timerId'), timer);
 });

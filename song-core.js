@@ -10,6 +10,7 @@
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
+  const Metronome = typeof module === "object" && module.exports ? require("./metronome.js") : globalThis.StrumLoopMetronome;
   const VERSION = 1;
   const MODES = { eighth: "8th", sixteenth: "16th" };
   const LIMITS = { title: 80, section: 40, chord: 12, repeat: 16 };
@@ -80,6 +81,7 @@
       practiceRampEnabled: Boolean(input.practiceRampEnabled),
       practiceRampStepBpm: clamp(input.practiceRampStepBpm, 1, 20, 2),
       practiceRampEveryBars: clamp(input.practiceRampEveryBars, 1, 16, 2),
+      metronomePulse: Metronome.pulseFromSource(source),
       metronomeEnabled: input.metronomeEnabled !== false,
       metronomeDownEnabled: input.metronomeDownEnabled !== false,
       metronomeUpEnabled: input.metronomeUpEnabled !== false,
@@ -97,7 +99,7 @@
     const value = createSong(song);
     return { v: VERSION, t: value.title, m: value.subdivisionMode, b: value.bpm, c: value.countInEnabled ? 1 : 0,
       pr: value.practiceRampEnabled ? 1 : 0, ps: value.practiceRampStepBpm, pb: value.practiceRampEveryBars,
-      me: value.metronomeEnabled ? 1 : 0, md: value.metronomeDownEnabled ? 1 : 0, mu: value.metronomeUpEnabled ? 1 : 0,
+      mp: value.metronomePulse, me: value.metronomeEnabled ? 1 : 0, md: value.metronomeDownEnabled ? 1 : 0, mu: value.metronomeUpEnabled ? 1 : 0,
       se: value.strumEnabled ? 1 : 0, sd: value.strumDownEnabled ? 1 : 0, su: value.strumUpEnabled ? 1 : 0, mv: value.metronomeVolume,
       sv: value.strumVolume, as: value.accentSound, l: value.loopSong ? 1 : 0, s: value.sections.map(section => ({
         i: section.id, n: section.name, bc: section.barCount, r: section.repeatCount,
@@ -108,7 +110,7 @@
     if (!value || value.v !== VERSION || !Array.isArray(value.s)) throw new Error("Unsupported or invalid song file.");
     return createSong({ version: value.v, title: value.t, subdivisionMode: value.m, bpm: value.b,
       countInEnabled: value.c === 1, practiceRampEnabled: value.pr === 1, practiceRampStepBpm: value.ps,
-      practiceRampEveryBars: value.pb, metronomeEnabled: value.me !== 0, metronomeDownEnabled: value.md !== 0,
+      practiceRampEveryBars: value.pb, metronomePulse: value.mp, metronomeEnabled: value.me !== 0, metronomeDownEnabled: value.md !== 0,
       metronomeUpEnabled: value.mu !== 0, strumEnabled: value.se !== 0, strumDownEnabled: value.sd !== 0,
       strumUpEnabled: value.su !== 0,
       metronomeVolume: value.mv, strumVolume: value.sv, accentSound: value.as, loopSong: value.l === 1,
